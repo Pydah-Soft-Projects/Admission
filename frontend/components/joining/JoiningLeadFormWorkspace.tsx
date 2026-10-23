@@ -1,0 +1,9711 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button } from '@/components/ui/Button';
+import { PrintActionButton } from '@/components/ui/PrintActionButton';
+import { Input } from '@/components/ui/Input';
+import { ReferenceUserSelect } from '@/components/admission/ReferenceUserSelect';
+import { AdmissionReferenceHistoryDialog } from '@/components/admission/AdmissionReferenceHistoryDialog';
+import {
+  joiningAPI,
+  feeRequestAPI,
+  feeStructureAPI,
+  admissionAPI,
+  paymentAPI,
+  paymentSettingsAPI,
+  registrationFormAPI,
+  courseAPI,
+} from '@/lib/api';
+import { joiningPublicApi } from '@/lib/joiningPublicApi';
+import {
+  JoiningApplicantPhotosSection,
+  JoiningDynamicRegistrationFields,
+} from '@/components/joining/JoiningDynamicRegistrationFields';
+import { PreferredMobileNumberSelect } from '@/components/joining/PreferredMobileNumberSelect';
+import {
+  isApaarIdField,
+  isAdmissionDateEntryField,
+  isFixedAcademicYearField,
+  isFixedSemesterField,
+  isPreviousCollegeField,
+  localCalendarDateYmd,
+  normalizeAdmissionDateEntryValue,
+} from '@/lib/joiningRegistrationFieldLayout';
+import { isCurrentAcademicYearField } from '@/lib/joiningAcademicYearRegistration';
+import {
+  applyMappedRegistrationField,
+  isJoiningRegistrationFieldMapped,
+  mergeJoiningStudentInfoFromExtras,
+  normalizeJoiningDateOfBirthInput,
+  readMappedRegistrationField,
+} from '@/lib/joiningRegistrationFieldMap';
+import { isJoiningStudentPortraitUploadField } from '@/lib/joiningRegistrationPhotoFields';
+import {
+  defaultJoiningDocuments,
+  normalizeJoiningDocumentsFromApi,
+  serializeJoiningDocumentsForApi,
+} from '@/lib/joiningDocumentsNormalize';
+import {
+  filterJoiningRegistrationDisplayFields,
+  stripJoiningRedundantRegistrationExtras,
+} from '@/lib/joiningRegistrationFieldFilter';
+import {
+  buildCertificateChecklistStoredValue,
+  certificateChecklistValuesEqual,
+  computeCertificationStatusFromChecklist,
+  listCertificateItemOptions,
+  parseCertificateChecklistEntry,
+  type CertificateChecklistStoredValue,
+} from '@/lib/certificateChecklistEntry';
+import { coerceJoiningRegistrationField } from '@/lib/joiningRegistrationFieldCoerce';
+import { mergeLeadIntoJoiningFormState, type LeadLike } from '@/lib/joiningLeadPrefill';
+import { resolvePreferredMobileSourcePhones, suggestDefaultPreferredMobileDigits } from '@/lib/joiningPreferredMobile';
+import { resolveJoiningReference1 } from '@/lib/joiningApplicationViewDisplay';
+import { SELF_REGISTRATION_SOURCE } from '@/lib/joiningSelfRegistration';
+import {
+  applyAccommodationFeesToStudentFeeDetails,
+  buildAccommodationInjectedRows,
+  canProceedFromAccommodationStep,
+  hasRevisedStudentFeeLineOverrides,
+  isAccommodationChoiceLocked,
+  joiningTransportDetailsCompletenessScore,
+} from '@/lib/joiningBusFeeSync';
+import {
+  computeScholarshipRegistrationPatches,
+  scholarshipIntentForCourseQuota,
+} from '@/lib/joiningScholarshipQuotaDefault';
+import {
+  isJoiningDocumentChecklistKeyVisible,
+} from '@/lib/joiningDocumentChecklist';
+import {
+  mergeQuotaSelectOptions,
+  parseStudentQuotasResponse,
+  quotaLabelsFromCatalog,
+} from '@/lib/studentQuotaCatalog';
+import {
+  normalizeCasteKey,
+  parseCasteCatalogResponse,
+  resolveCasteCategoryIdForValue,
+  resolveCasteForValue,
+  type CasteCatalogItem,
+  type CasteCategoryCatalogItem,
+} from '@/lib/casteCatalog';
+import { isManagementQuotaLabel } from '@/lib/joiningScholarshipQuotaDefault';
+import {
+  findBranchInCatalog,
+  resolveFeePortalBranchFromCatalog,
+  resolveFeePortalBranchLabel,
+} from '@/lib/feePortalBranchLabel';
+import {
+  filterPersistableBuilderConcessionLines,
+  getMissingBuilderHeadYearAmounts,
+  overallConcessionLinesToBuilderLines,
+  resolveOverallConcessionLine,
+  type OverallConcessionLine,
+  resolveFeeHead,
+} from '@/lib/overallConcessions';
+import {
+  buildBtechIntakeAutoRemark,
+  buildBtechJoiningYearOptions,
+  buildJoiningRegistrationFixedGate,
+  clampApplicationCalendarYear,
+  computeAcademicYearRegistrationPatches,
+  listRegistrationRemarkFieldNames,
+  normalizeBtechIntakeYearString,
+  resolveBtechSemesterFromLateral,
+  resolveJoiningStepOneAcademicYear,
+  resolveJoiningStudentYearOfStudy,
+  resolveJoiningFeeYearColumns,
+  resolveTotalYearsFromCourseSettings,
+  sanitizeJoiningRegistrationBatchFieldValue,
+  type JoiningRegistrationFixedGate,
+} from '@/lib/joiningAcademicYearRegistration';
+import { showToast } from '@/lib/toast';
+import { cn } from '@/lib/utils';
+import {
+  Joining,
+  JoiningDocumentStatus,
+  JoiningDocuments,
+  JoiningEducationHistory,
+  JoiningRelativeAddress,
+  JoiningReservation,
+  JoiningSibling,
+  JoiningStatus,
+  JoiningStudentFeeDetails,
+  JoiningStudentFeeLineOverride,
+  JoiningTransportDetails,
+  Admission,
+  Branch,
+  PaymentSummary,
+  CoursePaymentSettings,
+  PaymentTransaction,
+  CashfreeConfigPreview,
+  CertificateGuidance,
+  FeeHead,
+  FeeStructure,
+  Lead,
+  FeeManagementGlobalAccount,
+} from '@/types';
+
+type RequiredOverride = JoiningStudentFeeLineOverride & {
+  amount: number;
+  concessionType: 'CONCESSION' | 'REVISED_FEE';
+};
+import {
+  useDashboardHeader,
+  useJoiningDeskPermissions,
+  useModulePermission,
+  useModulePermissionRaw,
+} from '@/components/layout/DashboardShell';
+import { PrintableDocumentChecklist } from '@/components/PrintableDocumentChecklist';
+import { FeeStructureSection, type FeeHeadSelection } from '@/components/fee/FeeStructureSection';
+import { CertificateInformationChecklistBlock } from '@/components/joining/CertificateInformationChecklistPanel';
+import {
+  PrintablePaymentReceipt,
+  buildPaymentReceiptDetailsFromForm,
+} from '@/components/joining/PrintablePaymentReceipt';
+import { PrintableCertificateChecklist } from '@/components/joining/PrintableCertificateChecklist';
+import { handleExternalPrint } from '@/lib/printHtml';
+import {
+  PrintableAdmitCard,
+  buildAdmitCardStudentFromForm,
+} from '@/components/joining/PrintableAdmitCard';
+import {
+  AdmissionWorkflowStepBanner,
+  AdmissionWorkflowStepButtons,
+  WorkflowNextStepButton,
+  WorkflowPreviousStepButton,
+  WorkflowStickyActionBar,
+  scrollToWorkflowAnchor,
+  type AdmissionWorkflowStep,
+} from '@/components/admission/AdmissionWorkflowSteps';
+import {
+  AdmissionStepThreeBusHostelPanel,
+  mergeJoiningTransportDetails,
+  parseJoiningTransportDetails,
+} from '@/components/admission/AdmissionStepThreeBusHostelPanel';
+import { ApplicationInfoCard } from '@/components/admission/ApplicationInfoCard';
+import { JoiningStepOneShell } from '@/components/joining/JoiningStepOneShell';
+import { ParentOccupationSelect } from '@/components/joining/ParentOccupationSelect';
+import { useLocations } from '@/lib/useLocations';
+import { useInstitutions } from '@/lib/useInstitutions';
+import { BookOpen, FileText, GraduationCap, History, MapPin, Pencil, User, UserPlus, Users } from 'lucide-react';
+
+const formatCurrency = (amount?: number | null) => {
+  if (amount === undefined || amount === null || Number.isNaN(amount)) {
+    return '—';
+  }
+  try {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return amount.toString();
+  }
+};
+
+const extractFeeStructureRows = (response: unknown): FeeStructure[] => {
+  const topLevel = response;
+  if (Array.isArray(topLevel)) return topLevel as FeeStructure[];
+  if (!topLevel || typeof topLevel !== 'object') return [];
+
+  const data = (topLevel as { data?: unknown }).data;
+  if (Array.isArray(data)) return data as FeeStructure[];
+  if (data && typeof data === 'object') {
+    const nested = (data as { data?: unknown }).data;
+    if (Array.isArray(nested)) return nested as FeeStructure[];
+  }
+  return [];
+};
+
+const extractFeeHeadRows = (response: unknown): FeeHead[] => {
+  if (Array.isArray(response)) return response as FeeHead[];
+  if (!response || typeof response !== 'object') return [];
+
+  const data = (response as { data?: unknown }).data;
+  if (Array.isArray(data)) return data as FeeHead[];
+  if (data && typeof data === 'object') {
+    const nested = (data as { data?: unknown }).data;
+    if (Array.isArray(nested)) return nested as FeeHead[];
+  }
+  return [];
+};
+
+const filterEmptyFeeHeads = (lines: JoiningStudentFeeLineOverride[]): JoiningStudentFeeLineOverride[] => {
+  const headGroups = new Map<string, JoiningStudentFeeLineOverride[]>();
+  for (const line of lines) {
+    const key = String(line.feeHeadId || line.feeHeadCode || '').trim();
+    if (!key) continue;
+    if (!headGroups.has(key)) {
+      headGroups.set(key, []);
+    }
+    headGroups.get(key)!.push(line);
+  }
+  const validLines: JoiningStudentFeeLineOverride[] = [];
+  for (const groupLines of headGroups.values()) {
+    const hasAnyValue = groupLines.some(
+      (line) => line.amount !== undefined && line.amount !== null && Number(line.amount) > 0
+    );
+    if (hasAnyValue) {
+      for (const line of groupLines) {
+        if (line.amount !== undefined && line.amount !== null && Number(line.amount) > 0) {
+          validLines.push(line);
+        }
+      }
+    }
+  }
+  return validLines;
+};
+
+const mapRevisedFeeLinesWithOth1 = (lines: JoiningStudentFeeLineOverride[]): JoiningStudentFeeLineOverride[] => {
+  return (lines || []).map(line => {
+    const code = String(line.feeHeadCode || '').trim().toUpperCase();
+    if (code === 'OTH02') {
+      return {
+        ...line,
+        feeHeadCode: 'OTH1',
+      };
+    }
+    return line;
+  });
+};
+
+/**
+ * Step 4 / Collect Payment display labels.
+ * Normalizes legacy OTH02 → OTH1 and resolves the label from the Fee Management
+ * feeheads master (by code, then by id) — structure rows can carry stale names
+ * (e.g. OTH1 stored as "BUS/HOSTEL/OTHERS"), so the master DB name wins.
+ */
+const resolveStepFourFeeHeadDisplay = (
+  input: { feeHeadId?: string | null; feeHeadCode?: string | null; feeHeadName?: string | null },
+  masterHeads: Array<{ _id?: string; id?: string; name?: string; code?: string }>
+): { feeHeadCode: string; feeHeadName: string } => {
+  let code = String(input.feeHeadCode || '').trim().toUpperCase();
+  if (code === 'OTH02') code = 'OTH1';
+  const rawName = String(input.feeHeadName || '').trim();
+  const nameLower = rawName.toLowerCase();
+
+  // Fee DB often stores OTH1 as "BUS/HOSTEL/OTHERS" — treat that as OTH1 even when code is blank.
+  if (
+    !code &&
+    (/special\s*fee/.test(nameLower) ||
+      /bus\s*\/\s*hostel\s*\/\s*others/.test(nameLower) ||
+      nameLower === 'bus/hostel/others')
+  ) {
+    code = 'OTH1';
+  }
+
+  // Use resolveFeeHead to find the correct master head (preferring code first)
+  const master = resolveFeeHead({ feeHeadId: input.feeHeadId, feeHeadCode: code || input.feeHeadCode }, masterHeads);
+
+  if (master) {
+    let masterCode = String(master.code || '').trim().toUpperCase();
+    if (masterCode === 'OTH02') masterCode = 'OTH1';
+    return {
+      feeHeadCode: code || masterCode,
+      feeHeadName: String(master.name || '').trim() || rawName || code || masterCode,
+    };
+  }
+
+  return {
+    feeHeadCode: code,
+    feeHeadName: rawName || code,
+  };
+};
+
+const formatDateTime = (value?: string) => {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return parsed.toLocaleString('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+};
+
+const parsePaymentTransactionsResponse = (response: unknown): PaymentTransaction[] => {
+  const payload = (response as { data?: unknown } | null)?.data ?? response;
+  if (Array.isArray(payload)) {
+    return payload as PaymentTransaction[];
+  }
+  if (payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown }).data)) {
+    return (payload as { data: PaymentTransaction[] }).data;
+  }
+  return [];
+};
+
+/** Compact radio/checkbox pills aligned with joining form controls. */
+const JOINING_FORM_CHOICE_PILL_CLASS =
+  'inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 shadow-sm transition hover:border-gray-300 focus-within:border-blue-400 focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-400 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-100';
+
+/** Shared compact select/input styling on the joining edit form. */
+const JOINING_FORM_CONTROL_CLASS =
+  'w-full rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 shadow-sm transition hover:border-gray-300 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-100 dark:disabled:bg-slate-800 dark:disabled:text-slate-500';
+
+const JOINING_FORM_LABEL_CLASS = 'mb-0.5 block text-xs font-medium text-gray-700 dark:text-slate-200';
+
+/** Step 4 admission phase options (stored as "1"…"5" in lead_data.admissionPhase). */
+const ADMISSION_PHASE_OPTIONS = ['1', '2', '3', '4', '5'] as const;
+
+function normalizeAdmissionPhaseValue(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  const match = raw.match(/^phase\s*([1-5])$/i) || raw.match(/^([1-5])$/);
+  return match?.[1] || '';
+}
+
+/** Step 4 fee tables — solid black/white headers (no accent colors). */
+const STEP_FOUR_TABLE_HEAD_ROW =
+  'border-b border-slate-800 bg-slate-900 text-left text-xs font-semibold uppercase tracking-wide text-white dark:border-slate-200 dark:bg-slate-100 dark:text-slate-900';
+const STEP_FOUR_TABLE_HEAD_CELL = 'px-4 py-3 text-white dark:text-slate-900';
+
+/** Compact toolbar buttons — match form control text size. */
+const JOINING_ACTION_BTN_CLASS = 'h-8 min-h-8 px-3 py-1 text-xs font-medium';
+
+/** Responsive 3-column form grid for joining Step 1. */
+const JOINING_FORM_GRID_CLASS =
+  'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:items-start lg:gap-x-3 lg:gap-y-3';
+
+/** Documents checklist — wider cells so labels and status pills do not overlap. */
+const JOINING_DOCUMENTS_GRID_CLASS = 'grid grid-cols-1 gap-2 sm:grid-cols-2 lg:gap-2';
+
+/** Keys used for college on Course & Quota — must survive registration re-sync when course changes. */
+const COLLEGE_REGISTRATION_EXTRA_KEYS = [
+  'college_id',
+  'collegeId',
+  'school_or_college_id',
+  'schoolOrCollegeId',
+  'school_or_college_name',
+  'college',
+] as const;
+
+function mergePreservedCollegeRegistrationExtras(
+  next: Record<string, unknown>,
+  prev: Record<string, unknown>
+): Record<string, unknown> {
+  const merged = { ...next };
+  for (const key of COLLEGE_REGISTRATION_EXTRA_KEYS) {
+    const prevVal = prev[key];
+    if (prevVal !== undefined && prevVal !== null && String(prevVal).trim() !== '') {
+      merged[key] = prevVal;
+    }
+  }
+  return merged;
+}
+
+function collegeRegistrationPatchFromId(
+  collegeId: string,
+  colleges: { id: string; name: string }[]
+): Record<string, unknown> {
+  const id = String(collegeId || '').trim();
+  if (!id) return {};
+  const selected = colleges.find((item) => item.id === id);
+  return {
+    college_id: id,
+    collegeId: id,
+    school_or_college_id: id,
+    schoolOrCollegeId: id,
+    school_or_college_name: selected?.name || '',
+    college: selected?.name || '',
+  };
+}
+
+const documentLabels: Record<keyof JoiningDocuments, string> = {
+  ssc: 'SSC',
+  inter: 'Intermediate',
+  ugOrPgCmm: 'UG / PG CMM',
+  transferCertificate: 'Transfer Certificate',
+  studyCertificate: 'Study Certificate',
+  aadhaarCard: 'Aadhaar Card',
+  photos: 'Photos (5)',
+  incomeCertificate: 'EWS Certificate',
+  casteCertificate: 'Caste Certificate',
+  cetRankCard: 'CET Rank Card',
+  cetHallTicket: 'CET Hall Ticket',
+  allotmentLetter: 'Allotment Letter',
+  joiningReport: 'Joining Report',
+  bankPassBook: 'Bank Pass Book',
+  rationCard: 'Ration Card',
+};
+
+const mediumOptions: Array<{ value: 'english' | 'telugu' | 'other'; label: string }> = [
+  { value: 'english', label: 'English' },
+  { value: 'telugu', label: 'Telugu' },
+  { value: 'other', label: 'Other' },
+];
+
+const mediumOptionValues = new Set(mediumOptions.map((option) => option.value));
+
+const documentStatusOptions: JoiningDocumentStatus[] = ['pending', 'received'];
+
+const normalizeMediumSelections = (
+  qualifications?: Joining['qualifications']
+): Array<'english' | 'telugu' | 'other'> => {
+  const selections: string[] = [];
+
+  if (Array.isArray(qualifications?.mediums)) {
+    selections.push(...qualifications.mediums);
+  }
+
+  const legacyMedium = (qualifications as any)?.medium;
+  if (typeof legacyMedium === 'string' && legacyMedium) {
+    selections.push(legacyMedium);
+  }
+
+  return Array.from(
+    new Set(
+      selections.filter(
+        (item): item is 'english' | 'telugu' | 'other' => mediumOptionValues.has(item as any)
+      )
+    )
+  );
+};
+
+const sanitizeYearValue = (value: string) => value.replace(/\D/g, '').slice(0, 4);
+
+const sanitizeTotalMarksInput = (nextValue: string, previousValue: string) => {
+  const cleaned = nextValue.replace(/[^0-9.%]/g, '');
+
+  if (cleaned === '') {
+    return '';
+  }
+
+  const percentMatches = cleaned.match(/%/g)?.length ?? 0;
+  if (percentMatches > 1) {
+    return previousValue;
+  }
+
+  if (percentMatches === 1) {
+    if (!cleaned.endsWith('%')) {
+      return previousValue;
+    }
+
+    const numberPart = cleaned.slice(0, -1);
+    if (!numberPart) {
+      return previousValue;
+    }
+
+    if (numberPart.split('%').length > 1) {
+      return previousValue;
+    }
+
+    const [integerPart, decimalPart] = numberPart.split('.');
+    if (!integerPart || integerPart.length > 2 || !/^\d+$/.test(integerPart)) {
+      return previousValue;
+    }
+
+    if (decimalPart !== undefined) {
+      if (decimalPart.length > 2 || !/^\d*$/.test(decimalPart)) {
+        return previousValue;
+      }
+    }
+
+    return cleaned;
+  }
+
+  if (/^\d{0,4}(\.\d{0,2})?$/.test(cleaned)) {
+    return cleaned;
+  }
+
+  return previousValue;
+};
+
+function RelativeAddressRow({
+  relative,
+  index,
+  updateRelative,
+  toggleRelativeGuardian,
+  removeRelative,
+  stateNames,
+}: {
+  relative: JoiningRelativeAddress;
+  index: number;
+  updateRelative: (index: number, field: keyof JoiningRelativeAddress, value: string) => void;
+  toggleRelativeGuardian: (index: number, checked: boolean) => void;
+  removeRelative: (index: number) => void;
+  stateNames: string[];
+}) {
+  const { districtNames, mandalNames } = useLocations({
+    stateName: relative.state || undefined,
+    districtName: relative.district || undefined,
+  });
+  return (
+    <div className="rounded-xl border border-gray-200 p-4 shadow-sm dark:border-slate-700">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Address #{index + 1}</h3>
+        <button className="text-sm text-red-500" onClick={() => removeRelative(index)}>Remove</button>
+      </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <Input compact label="Name" value={relative.name || ''} onChange={(e) => updateRelative(index, 'name', e.target.value)} />
+        <Input compact label="Relationship" value={relative.relationship || ''} onChange={(e) => updateRelative(index, 'relationship', e.target.value)} />
+        <div className="flex flex-col justify-end gap-1">
+          <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-slate-200">
+            <input
+              type="checkbox"
+              checked={Boolean(relative.isGuardian)}
+              onChange={(e) => toggleRelativeGuardian(index, e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            Guardian entry (optional)
+          </label>
+          <p className="text-xs text-gray-500 dark:text-slate-400">
+            Optional — check only if this relative should be offered as a preferred contact.
+          </p>
+        </div>
+        <Input
+          compact
+          label="Mobile Number"
+          type="tel"
+          inputMode="numeric"
+          autoComplete="tel"
+          value={relative.phone || ''}
+          onChange={(e) => updateRelative(index, 'phone', e.target.value.replace(/\D/g, ''))}
+          placeholder="10-digit mobile"
+          maxLength={15}
+        />
+        <Input compact label="Door / Street" value={relative.doorOrStreet || ''} onChange={(e) => updateRelative(index, 'doorOrStreet', e.target.value.toUpperCase())} />
+        <Input compact label="Landmark" value={relative.landmark || ''} onChange={(e) => updateRelative(index, 'landmark', e.target.value.toUpperCase())} />
+        <Input compact label="Village / City" value={relative.villageOrCity || ''} onChange={(e) => updateRelative(index, 'villageOrCity', e.target.value.toUpperCase())} />
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">State</label>
+          <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={relative.state || ''} onChange={(e) => updateRelative(index, 'state', e.target.value)}>
+            <option value="">Select state</option>
+            {stateNames.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">District</label>
+          <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={relative.district || ''} onChange={(e) => updateRelative(index, 'district', e.target.value)}>
+            <option value="">Select district</option>
+            {districtNames.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mandal</label>
+          <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" value={relative.mandal || ''} onChange={(e) => updateRelative(index, 'mandal', e.target.value)}>
+            <option value="">Select mandal</option>
+            {mandalNames.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        <Input compact label="PIN Code" value={relative.pinCode || ''} onChange={(e) => updateRelative(index, 'pinCode', e.target.value)} maxLength={6} />
+      </div>
+    </div>
+  );
+}
+
+type JoiningFormState = {
+  courseInfo: Joining['courseInfo'];
+  studentInfo: Joining['studentInfo'];
+  parents: Joining['parents'];
+  reservation: JoiningReservation;
+  address: Joining['address'];
+  qualifications: Joining['qualifications'];
+  educationHistory: JoiningEducationHistory[];
+  hasSiblings: boolean | null;
+  siblings: JoiningSibling[];
+  documents: JoiningDocuments;
+};
+
+const defaultDocuments = defaultJoiningDocuments();
+
+const buildInitialState = (joining?: Joining): JoiningFormState => {
+  const resolvedMediums = normalizeMediumSelections(joining?.qualifications);
+
+  return {
+    courseInfo: {
+      courseId: joining?.courseInfo?.courseId,
+      branchId: joining?.courseInfo?.branchId,
+      course: joining?.courseInfo?.course || '',
+      branch: joining?.courseInfo?.branch || '',
+      quota: joining?.courseInfo?.quota || '',
+      programLevel: joining?.courseInfo?.programLevel || '',
+    },
+    studentInfo: {
+      name: joining?.studentInfo?.name || '',
+      aadhaarNumber: joining?.studentInfo?.aadhaarNumber || '',
+      phone: joining?.studentInfo?.phone || '',
+      preferredMobileNumber: joining?.studentInfo?.preferredMobileNumber || '',
+      gender: joining?.studentInfo?.gender || '',
+      dateOfBirth: normalizeJoiningDateOfBirthInput(joining?.studentInfo?.dateOfBirth),
+      isScholarApplicable: joining?.studentInfo?.isScholarApplicable,
+    },
+    parents: {
+      father: {
+        name: joining?.parents?.father?.name || '',
+        phone: joining?.parents?.father?.phone || '',
+        aadhaarNumber: joining?.parents?.father?.aadhaarNumber || '',
+        photo: joining?.parents?.father?.photo || '',
+        occupation: joining?.parents?.father?.occupation || '',
+      },
+      mother: {
+        name: joining?.parents?.mother?.name || '',
+        phone: joining?.parents?.mother?.phone || '',
+        aadhaarNumber: joining?.parents?.mother?.aadhaarNumber || '',
+        photo: joining?.parents?.mother?.photo || '',
+        occupation: joining?.parents?.mother?.occupation || '',
+      },
+    },
+    reservation: {
+      general: joining?.reservation?.general || '',
+      categoryId: joining?.reservation?.categoryId || undefined,
+      casteId: joining?.reservation?.casteId || undefined,
+      isEws: joining?.reservation?.isEws || false,
+      other: joining?.reservation?.other || [],
+    },
+    address: {
+      communication: {
+        state: joining?.address?.communication?.state || '',
+        doorOrStreet: joining?.address?.communication?.doorOrStreet || '',
+        landmark: joining?.address?.communication?.landmark || '',
+        villageOrCity: joining?.address?.communication?.villageOrCity || '',
+        mandal: joining?.address?.communication?.mandal || '',
+        district: joining?.address?.communication?.district || '',
+        pinCode: joining?.address?.communication?.pinCode || '',
+      },
+      relatives: joining?.address?.relatives?.length
+        ? joining.address.relatives.map((relative) => ({
+          name: relative.name || '',
+          relationship: relative.relationship || '',
+          phone: relative.phone || '',
+          isGuardian: Boolean(relative.isGuardian),
+          state: relative.state || '',
+          doorOrStreet: relative.doorOrStreet || '',
+          landmark: relative.landmark || '',
+          villageOrCity: relative.villageOrCity || '',
+          mandal: relative.mandal || '',
+          district: relative.district || '',
+          pinCode: relative.pinCode || '',
+        }))
+        : [],
+    },
+    qualifications: {
+      ssc: joining?.qualifications?.ssc || false,
+      interOrDiploma: joining?.qualifications?.interOrDiploma || false,
+      ug: joining?.qualifications?.ug || false,
+      merit:
+        joining?.qualifications?.merit === true
+          ? true
+          : false,
+      ac:
+        joining?.qualifications?.ac === true
+          ? true
+          : false,
+      mediums: resolvedMediums,
+      otherMediumLabel: resolvedMediums.includes('other')
+        ? joining?.qualifications?.otherMediumLabel || ''
+        : '',
+    },
+    educationHistory: joining?.educationHistory?.length
+      ? joining.educationHistory.map((item) => ({
+        level: item.level,
+        otherLevelLabel: item.otherLevelLabel || '',
+        courseOrBranch: item.courseOrBranch || '',
+        yearOfPassing: item.yearOfPassing || '',
+        institutionName: item.institutionName || '',
+        institutionAddress: item.institutionAddress || '',
+        hallTicketNumber: item.hallTicketNumber || '',
+        totalMarksOrGrade: item.totalMarksOrGrade || '',
+        cetRank: item.cetRank || '',
+      }))
+      : [],
+    hasSiblings: joining?.hasSiblings ?? (joining?.siblings?.length ? true : null),
+    siblings: joining?.siblings?.length
+      ? joining.siblings.map((sibling) => ({
+        name: sibling.name || '',
+        relation: sibling.relation || '',
+        studyingStandard: sibling.studyingStandard || '',
+        institutionName: sibling.institutionName || '',
+      }))
+      : [],
+    documents: normalizeJoiningDocumentsFromApi(joining?.documents),
+  };
+};
+
+const maskAadhaar = (value?: string) => {
+  const digitsOnly = value?.replace(/\D/g, '') || '';
+  if (!digitsOnly) return '';
+  if (digitsOnly.length <= 4) return digitsOnly;
+  const masked = digitsOnly
+    .slice(0, -4)
+    .replace(/\d/g, '•')
+    .replace(/(.{4})/g, '$1 ')
+    .trim();
+  const suffix = digitsOnly.slice(-4);
+  return `${masked} ${suffix}`;
+};
+
+/** Parse admission from update/get API bodies (`data` may be the record or `{ admission }`). */
+const parseAdmissionFromApiBody = (body: unknown): Admission | null => {
+  if (!body || typeof body !== 'object') return null;
+  const root = body as Record<string, unknown>;
+  const data = root.data;
+  if (data && typeof data === 'object') {
+    const d = data as Record<string, unknown>;
+    if (d.admission && typeof d.admission === 'object') {
+      return d.admission as Admission;
+    }
+    if (typeof d._id === 'string' && d._id.length === 36) {
+      return d as unknown as Admission;
+    }
+  }
+  if (typeof root._id === 'string' && root._id.length === 36) {
+    return root as unknown as Admission;
+  }
+  return null;
+};
+
+const normalizeStudentFeeDetailsFromRecord = (
+  sfd: JoiningStudentFeeDetails | undefined | null
+): JoiningStudentFeeDetails => {
+  if (!sfd || typeof sfd !== 'object' || !Array.isArray(sfd.lines)) {
+    return { lines: [] };
+  }
+  return {
+    batch: typeof sfd.batch === 'string' && sfd.batch.trim() ? sfd.batch.trim() : undefined,
+    lines: filterPersistableBuilderConcessionLines(
+      sfd.lines
+        .map((line) => {
+          const rawAmount = line.amount as unknown;
+          let amount: number | null = null;
+          if (rawAmount !== undefined && rawAmount !== null) {
+            if (typeof rawAmount === 'string' && rawAmount.trim() === '') {
+              amount = null;
+            } else {
+              const n =
+                typeof rawAmount === 'number' ? rawAmount : Number(String(rawAmount).trim());
+              amount = Number.isFinite(n) ? n : null;
+            }
+          }
+          return {
+            structureId: String(line.structureId || '').trim(),
+            amount,
+            remarks: typeof line.remarks === 'string' ? line.remarks : '',
+            concessionType:
+              line.concessionType === 'CONCESSION' || line.concessionType === 'REVISED_FEE'
+                ? line.concessionType
+                : undefined,
+            feeHeadId: line.feeHeadId ? String(line.feeHeadId).trim() : undefined,
+            feeHeadCode: line.feeHeadCode
+              ? String(line.feeHeadCode).trim().toUpperCase() === 'OTH02'
+                ? 'OTH1'
+                : String(line.feeHeadCode).trim()
+              : undefined,
+            feeHeadName: line.feeHeadName ? String(line.feeHeadName).trim() : undefined,
+            studentYear:
+              line.studentYear != null && Number.isFinite(Number(line.studentYear))
+                ? Number(line.studentYear)
+                : undefined,
+          };
+        })
+        .filter((l) => l.structureId)
+    ),
+  };
+};
+
+export type JoiningLeadFormWorkspaceProps = {
+  adminLeadId?: string | null;
+  publicToken?: string | null;
+  /** Pre-fetched bootstrap payload from PublicJoiningGate. When provided the
+   *  internal bootstrap query is skipped entirely, preventing hook-count
+   *  mismatches caused by the query error/loading state changing between renders. */
+  publicBootstrapData?: import('@/lib/joiningPublicApi').JoiningPublicBootstrapData | null;
+};
+
+export function JoiningLeadFormWorkspace({ adminLeadId, publicToken, publicBootstrapData }: JoiningLeadFormWorkspaceProps) {
+  const isPublicEdit = Boolean(publicToken);
+  const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  const { setHeaderContent, clearHeaderContent } = useDashboardHeader();
+  const routeLeadFromParams = Array.isArray(params?.leadId) ? params.leadId[0] : params?.leadId;
+  const effectiveAdminLeadId = (adminLeadId ?? routeLeadFromParams) as string | undefined;
+
+  const joiningListReturnPath = useMemo(() => {
+    const from = searchParams.get('from');
+    if (from === 'self-registration') {
+      return '/superadmin/joining/self-registration';
+    }
+    if (from === 'confirmed') {
+      return '/superadmin/joining/confirmed';
+    }
+    if (from !== 'admissions') {
+      return '/superadmin/joining/pipeline';
+    }
+    const tab = searchParams.get('tab');
+    const admissionsTab = tab && ['abstract', 'student-info', 'reference-list', 'source-list', 'date-wise'].includes(tab)
+      ? tab
+      : 'student-info';
+    return `/superadmin/joining/completed?tab=${encodeURIComponent(admissionsTab)}`;
+  }, [searchParams]);
+
+  const navigateBackToJoiningList = useCallback(() => {
+    router.push(joiningListReturnPath);
+  }, [router, joiningListReturnPath]);
+
+  const joiningPerm = useModulePermission('joining');
+  const joiningPermData = useModulePermissionRaw('joining');
+  const { canEditAdmission, canApproveFeeRequest, canEditReference, canSubmitFeeRequest } = useJoiningDeskPermissions();
+  const paymentsPerm = useModulePermission('payments');
+  const canAccessJoiningModule = isPublicEdit || joiningPerm.hasAccess;
+  const canWriteJoining = isPublicEdit || joiningPerm.canWrite;
+  const canEditApprovedAdmission = isPublicEdit || canEditAdmission;
+  const canAccessPaymentsModule = !isPublicEdit && paymentsPerm.hasAccess;
+  const canWritePayments = !isPublicEdit && paymentsPerm.canWrite;
+
+  const [formState, setFormState] = useState<JoiningFormState>(buildInitialState());
+  const preferredMobileAutoFilledRef = useRef(false);
+  const [status, setStatus] = useState<JoiningStatus>('draft');
+  const [applicationWizardStep, setApplicationWizardStep] = useState<AdmissionWorkflowStep>(1);
+  const useJoiningPageWizard = !isPublicEdit;
+
+  const [meta, setMeta] = useState<{
+    updatedAt?: string;
+    submittedAt?: string;
+    approvedAt?: string;
+    admissionNumber?: string;
+  }>({});
+  const [admissionRecord, setAdmissionRecord] = useState<Admission | null>(null);
+  const [admissionRemarks, setAdmissionRemarks] = useState('');
+  const [isEditingRemarks, setIsEditingRemarks] = useState(false);
+  const [hasAppliedAdmissionSnapshot, setHasAppliedAdmissionSnapshot] = useState(false);
+
+  const advanceApplicationWizard = useCallback(
+    (step: AdmissionWorkflowStep) => {
+      // Staff: all 4 steps stay open. Public/QR stays Step 1 only (panels hidden).
+      setApplicationWizardStep(step);
+      requestAnimationFrame(() => scrollToWorkflowAnchor(`joining-wizard-step-${step}`));
+    },
+    []
+  );
+
+  const handleJoiningWizardStepSelect = useCallback(
+    (step: AdmissionWorkflowStep) => advanceApplicationWizard(step),
+    [advanceApplicationWizard]
+  );
+
+  const [otherReservationInput, setOtherReservationInput] = useState('');
+  const [showStudentAadhaar, setShowStudentAadhaar] = useState(false);
+  const [showFatherAadhaar, setShowFatherAadhaar] = useState(false);
+  const [showMotherAadhaar, setShowMotherAadhaar] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [registrationExtras, setRegistrationExtras] = useState<Record<string, unknown>>({});
+  const [reference1, setReference1] = useState('');
+  const [admissionPhase, setAdmissionPhase] = useState('');
+  const [isSavingReference, setIsSavingReference] = useState(false);
+  const [isReferenceHistoryOpen, setIsReferenceHistoryOpen] = useState(false);
+  const [isSavingAdmissionPhase, setIsSavingAdmissionPhase] = useState(false);
+  const [isSavingRemarks, setIsSavingRemarks] = useState(false);
+  /** Latest workflow-fixed registration year/semester (B.Tech vs others); synced after course catalog context resolves. */
+  const joiningFixedRegistrationRef = useRef<JoiningRegistrationFixedGate>(
+    buildJoiningRegistrationFixedGate({ courseName: '', courseCode: '' })
+  );
+  /** True when admission number exists — freezes admission/entry date fields. */
+  const admissionDateLockedRef = useRef(false);
+  /** Per–fee-head student amounts/notes; persisted in joinings.lead_data._joiningStudentFeeDetails on Save Draft. */
+  const [studentFeeDetails, setStudentFeeDetails] = useState<JoiningStudentFeeDetails>({ lines: [] });
+  /** Fee heads added to builder UI before any year amount is entered. */
+  const [builderAddedHeadIds, setBuilderAddedHeadIds] = useState<string[]>([]);
+  /** Per-head Revised Fee vs Concession — persists before year amounts are entered. */
+  const [builderHeadConcessionTypes, setBuilderHeadConcessionTypes] = useState<
+    Record<string, 'REVISED_FEE' | 'CONCESSION'>
+  >({});
+  /** Approved builder edits in session — skip re-hydrate from overall_concessions while dirty. */
+  const builderConcessionsDirtyRef = useRef(false);
+  const builderConcessionsHydratedForRef = useRef<string | null>(null);
+  const markBuilderConcessionsDirty = useCallback(() => {
+    builderConcessionsDirtyRef.current = true;
+  }, []);
+  const [selectedBuilderFeeHeadId, setSelectedBuilderFeeHeadId] = useState<string>('');
+  const [isBuilderPaymentDialogOpen, setIsBuilderPaymentDialogOpen] = useState(false);
+  const [builderPaymentTab, setBuilderPaymentTab] = useState<'collect' | 'transactions'>('collect');
+  const [builderPaymentTargets, setBuilderPaymentTargets] = useState<Array<{
+    structureId: string;
+    feeHeadId: string;
+    feeHeadName: string;
+    feeHeadCode: string;
+    studentYear: number;
+    semester?: number | string | null;
+    amount: string;
+  }>>([]);
+  /** Extra fee heads added only in Collect Payment (not part of fee structure / builder). */
+  const [selectedCollectFeeHeadId, setSelectedCollectFeeHeadId] = useState('');
+  const [builderPaymentExtraHeads, setBuilderPaymentExtraHeads] = useState<
+    Array<{ id: string; name: string; code: string }>
+  >([]);
+  const [builderPaymentYear, setBuilderPaymentYear] = useState<number>(1);
+  const [builderPaymentForm, setBuilderPaymentForm] = useState<{
+    amount: string;
+    paymentMode: 'Cash' | 'Bank';
+    receiptNumber: string;
+    remarks: string;
+    isProcessing: boolean;
+    paymentConfigId: string;
+  }>({
+    amount: '',
+    paymentMode: 'Cash',
+    receiptNumber: '',
+    remarks: '',
+    isProcessing: false,
+    paymentConfigId: '',
+  });
+  const [razorpayQrData, setRazorpayQrData] = useState<{
+    qrCodeId: string;
+    imageUrl: string;
+    paymentUrl: string;
+    amount: number;
+  } | null>(null);
+  const [isQrGenerating, setIsQrGenerating] = useState(false);
+  const [isQrVerifying, setIsQrVerifying] = useState(false);
+  const [qrError, setQrError] = useState<string | null>(null);
+
+  const { data: globalAccounts = [] } = useQuery<FeeManagementGlobalAccount[]>({
+    queryKey: ['fee-management-global-accounts'],
+    queryFn: () => paymentAPI.getFeeManagementGlobalAccounts(),
+    enabled: builderPaymentForm.paymentMode === 'Bank',
+  });
+
+  useEffect(() => {
+    if (builderPaymentForm.paymentMode === 'Bank' && globalAccounts && globalAccounts.length === 1) {
+      const singleAcc = globalAccounts[0];
+      setBuilderPaymentForm((prev) => ({
+        ...prev,
+        paymentConfigId: singleAcc._id,
+      }));
+    }
+  }, [globalAccounts, builderPaymentForm.paymentMode]);
+  const [transportDetails, setTransportDetails] = useState<JoiningTransportDetails>({
+    // Match Step 3 UI default ("None") so Next Step works without an extra click.
+    accommodationType: 'none',
+  });
+  const [registrationFormId, setRegistrationFormId] = useState<string | null>(null);
+  const [paymentSummary, setPaymentSummary] = useState<PaymentSummary | null>(null);
+  const [openPaymentMode, setOpenPaymentMode] = useState<'cash' | 'online' | null>(null);
+  const [shouldPromptPayment, setShouldPromptPayment] = useState(false);
+  const [isAdditionalFeeMode, setIsAdditionalFeeMode] = useState(false);
+  const [paymentFormState, setPaymentFormState] = useState<{
+    amount: string;
+    referenceId: string;
+    isProcessing: boolean;
+  }>({
+    amount: '',
+    referenceId: '',
+    isProcessing: false,
+  });
+  // Fee head the user clicked "Pay" against in the Fee Structure section. When set, the
+  // payment modal pre-fills the row amount, displays a fee-head pill, and tags the resulting
+  // payment_transactions row via the request body so payment history shows which head was paid.
+  const [selectedFeeHead, setSelectedFeeHead] = useState<FeeHeadSelection | null>(null);
+  const [publicLinkDialog, setPublicLinkDialog] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [admissionNumberDialog, setAdmissionNumberDialog] = useState<string | null>(null);
+  const [publicLinkBusy, setPublicLinkBusy] = useState(false);
+  const [publicSubmitted, setPublicSubmitted] = useState(false);
+
+  const commState = formState.address.communication.state ?? '';
+  const commDistrict = formState.address.communication.district ?? '';
+  const { stateNames, districtNames: commDistricts, mandalNames: commMandals } = useLocations({
+    stateName: commState || undefined,
+    districtName: commDistrict || undefined,
+  });
+  const { colleges } = useInstitutions();
+
+  const publicBootstrapQuery = useQuery({
+    queryKey: ['joining-public-bootstrap', publicToken],
+    // When bootstrap data is pre-fetched by PublicJoiningGate, disable the query
+    // entirely. This keeps the hook call count stable across all render states and
+    // prevents the "too many re-renders" error caused by the query error state.
+    enabled: isPublicEdit && !!publicToken && !publicBootstrapData,
+    queryFn: async () => joiningPublicApi.getBootstrap(publicToken as string),
+    retry: false,
+    // Seed the cache with the pre-fetched data so all usages of publicBootstrapQuery.data work
+    initialData: publicBootstrapData
+      ? { success: true as const, data: publicBootstrapData }
+      : undefined,
+  });
+
+  const adminJoiningQuery = useQuery({
+    queryKey: ['joining', effectiveAdminLeadId],
+    enabled: !isPublicEdit && !!effectiveAdminLeadId,
+    queryFn: async () => joiningAPI.getByLeadId(effectiveAdminLeadId as string),
+    staleTime: 10_000,
+  });
+
+  const data = useMemo(() => {
+    if (!isPublicEdit) return adminJoiningQuery.data;
+    const root = publicBootstrapQuery.data;
+    if (!root?.data) return undefined;
+    const d = root.data as { joining: Joining; lead: Record<string, unknown> | null };
+    return { ...root, data: { joining: d.joining, lead: d.lead } };
+  }, [isPublicEdit, adminJoiningQuery.data, publicBootstrapQuery.data]);
+
+  const isLoading = isPublicEdit ? publicBootstrapQuery.isLoading : adminJoiningQuery.isLoading;
+  const refetch = isPublicEdit ? publicBootstrapQuery.refetch : adminJoiningQuery.refetch;
+  const joiningLoadError = !isPublicEdit
+    ? (adminJoiningQuery.error as { response?: { data?: { message?: string } }; message?: string } | null)
+    : null;
+
+  const routeKey = useMemo(() => {
+    if (isPublicEdit) {
+      const rk = (publicBootstrapQuery.data?.data as { routeKey?: string } | undefined)?.routeKey;
+      return rk || '';
+    }
+    return effectiveAdminLeadId || '';
+  }, [isPublicEdit, publicBootstrapQuery.data, effectiveAdminLeadId]);
+
+  const leadId = routeKey;
+  const isNewJoining = !isPublicEdit && leadId === 'new';
+  const isSelfRegistrationPublic = useMemo(() => {
+    if (!isPublicEdit) return false;
+    const bootstrap = publicBootstrapQuery.data?.data as
+      | { routeKey?: string; selfRegistration?: boolean }
+      | undefined;
+    if (bootstrap?.selfRegistration) return true;
+    return bootstrap?.routeKey === 'self-registration';
+  }, [isPublicEdit, publicBootstrapQuery.data]);
+
+  /** All public token links (staff invite and self-registration QR) are Step 1 only. */
+  const usePublicWizard = false;
+  const useWizard = useJoiningPageWizard || usePublicWizard;
+  /** Staff joining desk: Steps 3–4 stay available without approval gate. */
+  const showAdminPostAdmissionStep3 = !isPublicEdit;
+  const showAdminPostAdmissionStep4 = showAdminPostAdmissionStep3;
+  /** Status/enquiry/student summary and course headings duplicate the workflow strip on Step 1. */
+  const hideJoiningStepOneRedundantIntro = useWizard && applicationWizardStep === 1;
+
+  const joiningRecord = data?.data?.joining as Joining | undefined;
+  // Use leadData from joining instead of populated lead
+  /** Prefer populated `lead` from API (includes address, academicYear, studentGroup); fall back to snapshot in `leadData`. */
+  const lead = (data?.data?.lead as any) || (joiningRecord?.leadData as any);
+
+  const isSelfRegistrationRecord = useMemo(() => {
+    if (isSelfRegistrationPublic) return true;
+    const src = String(lead?.source ?? joiningRecord?.leadData?.source ?? '').trim();
+    if (src === SELF_REGISTRATION_SOURCE) return true;
+    const dyn = lead?.dynamicFields ?? lead?.dynamic_fields;
+    if (dyn && typeof dyn === 'object') {
+      return String((dyn as Record<string, unknown>).createdFrom ?? '').trim() === 'self_registration';
+    }
+    return false;
+  }, [isSelfRegistrationPublic, lead, joiningRecord?.leadData]);
+
+  /** Joining id (after first save) or CRM lead/joining URL segment — never `new`. Used for detail link + public invite API. */
+  const publicLinkRouteKey = useMemo(() => {
+    if (joiningRecord?._id) return String(joiningRecord._id);
+    if (leadId && leadId !== 'new' && leadId !== 'self-registration') return String(leadId);
+    return '';
+  }, [joiningRecord?._id, leadId]);
+
+  const workflowJoiningId = publicLinkRouteKey || joiningRecord?._id || effectiveAdminLeadId;
+  const workflowSurface = isPublicEdit ? 'joining-public' : 'joining-edit';
+
+  useEffect(() => {
+    setApplicationWizardStep(1);
+  }, [leadId, joiningRecord?._id]);
+
+  const { data: registrationFormsResponse, isError: registrationFormsError } = useQuery({
+    queryKey: ['registration-form', 'student-db', 'forms', 'joining'],
+    queryFn: async () =>
+      registrationFormAPI.listForms({ showInactive: false, includeFieldCount: true }),
+    staleTime: 60_000,
+    retry: 1,
+    enabled: !isPublicEdit,
+  });
+
+  const registrationForms = useMemo(() => {
+    if (isPublicEdit) {
+      const list = (publicBootstrapQuery.data?.data as { registrationForms?: unknown[] } | undefined)
+        ?.registrationForms;
+      return Array.isArray(list) ? list : ([] as any[]);
+    }
+    const payload = (registrationFormsResponse as any)?.data ?? registrationFormsResponse;
+    if (!payload) return [] as any[];
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray((payload as any).data)) return (payload as any).data;
+    return [] as any[];
+  }, [isPublicEdit, publicBootstrapQuery.data, registrationFormsResponse]);
+
+  useEffect(() => {
+    if (!registrationFormId && registrationForms.length > 0) {
+      const def =
+        registrationForms.find((f: any) => f.isDefault || f.is_default) ?? registrationForms[0];
+      const id = def?.id || def?._id;
+      if (id) setRegistrationFormId(id);
+    }
+  }, [registrationForms, registrationFormId]);
+
+  useEffect(() => {
+    if (!isPublicEdit) return;
+    const f = (publicBootstrapQuery.data?.data as { registrationForm?: { id?: string; _id?: string } } | undefined)
+      ?.registrationForm;
+    const id = f?.id || f?._id;
+    if (id) setRegistrationFormId(String(id));
+  }, [isPublicEdit, publicBootstrapQuery.data]);
+
+  const {
+    data: registrationFormResponse,
+    isLoading: isLoadingRegistrationForm,
+    isError: registrationFormError,
+  } = useQuery({
+    queryKey: ['registration-form', 'student-db', 'form', registrationFormId, 'joining'],
+    queryFn: async () => {
+      if (!registrationFormId) return null;
+      return registrationFormAPI.getForm(registrationFormId, {
+        includeFields: true,
+        showInactive: false,
+      });
+    },
+    enabled: !isPublicEdit && !!registrationFormId,
+    staleTime: 30_000,
+    retry: 1,
+  });
+
+  const registrationFormDefinition = useMemo(() => {
+    if (isPublicEdit) {
+      const f = (publicBootstrapQuery.data?.data as { registrationForm?: Record<string, unknown> } | undefined)
+        ?.registrationForm;
+      return f && typeof f === 'object' ? f : null;
+    }
+    if (!registrationFormResponse) return null;
+    const payload = (registrationFormResponse as any)?.data ?? registrationFormResponse;
+    return payload || null;
+  }, [isPublicEdit, publicBootstrapQuery.data, registrationFormResponse]);
+
+  const sortedRegistrationFields = useMemo(() => {
+    const fields = registrationFormDefinition?.fields;
+    if (!Array.isArray(fields)) return [] as any[];
+    return [...fields].sort((a: any, b: any) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  }, [registrationFormDefinition]);
+
+  /** Management → not eligible; Convenor → eligible (registration fields whose name/label match scholarship). */
+  useEffect(() => {
+    const q = (formState.courseInfo.quota || '').trim();
+    if (scholarshipIntentForCourseQuota(q) === null) return;
+    if (!sortedRegistrationFields.length) return;
+    const patches = computeScholarshipRegistrationPatches(q, sortedRegistrationFields);
+    if (!Object.keys(patches).length) return;
+    setRegistrationExtras((prev) => {
+      let next = { ...prev };
+      let changed = false;
+      for (const [k, v] of Object.entries(patches)) {
+        const cur = next[k];
+        if (cur !== undefined && cur !== null && String(cur).trim() !== '') continue;
+        if (next[k] === v) continue;
+        next[k] = v;
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [sortedRegistrationFields, formState.courseInfo.quota, registrationFormId]);
+
+  /** Omits course / branch / quota / student_type / Aadhaar / caste / address keys (etc.) — edited above in Course & Quota or structured student fields. */
+  const joiningRegistrationDisplayFields = useMemo(
+    () => filterJoiningRegistrationDisplayFields(sortedRegistrationFields),
+    [sortedRegistrationFields]
+  );
+
+  const joiningRegistrationDisplayFieldsCoerced = useMemo(
+    () => joiningRegistrationDisplayFields.map((f: any) => coerceJoiningRegistrationField(f)),
+    [joiningRegistrationDisplayFields]
+  );
+
+  const joiningRemarkFieldNames = useMemo(
+    () => listRegistrationRemarkFieldNames(sortedRegistrationFields as Array<{ fieldName?: string; fieldLabel?: string }>),
+    [sortedRegistrationFields]
+  );
+  const joiningRemarkFieldNamesRef = useRef<string[]>([]);
+  joiningRemarkFieldNamesRef.current = joiningRemarkFieldNames;
+
+  const registrationFormFieldsAllFilteredOut =
+    sortedRegistrationFields.length > 0 && joiningRegistrationDisplayFields.length === 0;
+
+  const registrationDynHas = useMemo(
+    () => (names: string[]) =>
+      joiningRegistrationDisplayFieldsCoerced.some((f: any) =>
+        names.includes(String(f.fieldName || '').trim().toLowerCase())
+      ),
+    [joiningRegistrationDisplayFieldsCoerced]
+  );
+
+  const regHasDyn = joiningRegistrationDisplayFieldsCoerced.length > 0;
+  const registrationHasApaarField = useMemo(
+    () => joiningRegistrationDisplayFieldsCoerced.some((f: { fieldName?: string; fieldLabel?: string }) => isApaarIdField(f as { fieldName: string; fieldLabel: string; fieldType: string })),
+    [joiningRegistrationDisplayFieldsCoerced]
+  );
+  const registrationIntakeYearField = useMemo(
+    () =>
+      joiningRegistrationDisplayFieldsCoerced.find(
+        (f: { fieldName?: string; fieldLabel?: string }) =>
+          isFixedAcademicYearField(f as { fieldName: string; fieldLabel: string }) ||
+          isCurrentAcademicYearField(f.fieldName || '', f.fieldLabel || '')
+      ) ?? null,
+    [joiningRegistrationDisplayFieldsCoerced]
+  );
+  const registrationIntakeSemesterField = useMemo(
+    () =>
+      joiningRegistrationDisplayFieldsCoerced.find((f: { fieldName?: string; fieldLabel?: string }) =>
+        isFixedSemesterField(f as { fieldName: string; fieldLabel: string })
+      ) ?? null,
+    [joiningRegistrationDisplayFieldsCoerced]
+  );
+  const showStudentContactBesidePreviousCollege =
+    status === 'draft' &&
+    regHasDyn &&
+    registrationHasApaarField &&
+    joiningRegistrationDisplayFieldsCoerced.some((f: { fieldName?: string; fieldLabel?: string }) =>
+      isPreviousCollegeField(f as { fieldName: string; fieldLabel: string })
+    );
+
+  const hideJoiningStudentName = regHasDyn && registrationDynHas(['student_name', 'name']);
+  const hideJoiningStudentGender = regHasDyn && registrationDynHas(['student_gender', 'gender']);
+  const hideJoiningDateOfBirth = regHasDyn &&
+    registrationDynHas([
+      'date_of_birth',
+      'dateofbirth',
+      'dob',
+      'student_dob',
+      'student_date_of_birth',
+      'birth_date',
+      'birthdate',
+    ]);
+  const hideJoiningMotherName = regHasDyn && registrationDynHas(['mother_name', 'mothername']);
+  const hideJoiningDoor = regHasDyn && registrationDynHas(['address_door_street', 'door_street']);
+  const hideJoiningLandmark = regHasDyn && registrationDynHas(['address_landmark', 'landmark']);
+  const hideJoiningVillage = regHasDyn && registrationDynHas(['address_village_city', 'village', 'city', 'address_village']);
+  const hideJoiningState = regHasDyn && registrationDynHas(['state', 'address_state']);
+  const hideJoiningDistrict = regHasDyn && registrationDynHas(['address_district', 'district']);
+  const hideJoiningMandal = regHasDyn && registrationDynHas(['address_mandal', 'mandal']);
+  const hideJoiningPin = regHasDyn && registrationDynHas(['pincode', 'pin_code', 'address_pin_code']);
+
+  useEffect(() => {
+    if (!joiningRecord?._id) return;
+    const sfd = joiningRecord.studentFeeDetails;
+    const batch =
+      sfd && typeof sfd === 'object' && typeof sfd.batch === 'string' && sfd.batch.trim()
+        ? sfd.batch.trim()
+        : undefined;
+    if (status === 'approved') {
+      // Approved concessions builder reads only from overall_concessions — not lead_data lines.
+      setStudentFeeDetails((prev) => ({ ...(batch ? { batch } : {}), lines: prev.lines }));
+      return;
+    }
+    if (sfd && typeof sfd === 'object' && Array.isArray(sfd.lines)) {
+      setStudentFeeDetails(normalizeStudentFeeDetailsFromRecord(sfd));
+    } else {
+      setStudentFeeDetails({ lines: [], ...(batch ? { batch } : {}) });
+    }
+    setBuilderAddedHeadIds([]);
+  }, [joiningRecord?._id, joiningRecord?.updatedAt, status]);
+
+  const registrationLocationState = useMemo(
+    () =>
+      formState.address.communication.state ||
+      String(registrationExtras.state || registrationExtras.address_state || ''),
+    [formState.address.communication.state, registrationExtras]
+  );
+
+  const registrationLocationDistrict = useMemo(
+    () =>
+      formState.address.communication.district ||
+      String(registrationExtras.district || registrationExtras.address_district || ''),
+    [formState.address.communication.district, registrationExtras]
+  );
+
+  const handleRegistrationFieldChange = useCallback((fieldName: string, value: unknown) => {
+    const n = fieldName.toLowerCase();
+    if (isAdmissionDateEntryField({ fieldName })) {
+      // Admission/entry date: current date only; ignore edits once admission number exists.
+      if (admissionDateLockedRef.current) return;
+      const today = localCalendarDateYmd();
+      setRegistrationExtras((prev) => ({
+        ...prev,
+        [fieldName]: today,
+        admission_date: today,
+        date_of_admission: today,
+        date_of_entry: today,
+        entry_date: today,
+      }));
+      return;
+    }
+    if (
+      n === 'academic_year' ||
+      n === 'academicyear' ||
+      n === 'current_year' ||
+      n === 'currentyear'
+    ) {
+      const g = joiningFixedRegistrationRef.current;
+      if (g.isBtech) {
+        const raw = String(value ?? '').trim();
+        const num = Number(raw);
+        const cy = g.calendarYear;
+        const picked = num === cy ? String(cy) : num === cy - 1 ? String(cy - 1) : String(cy);
+        const lateral = Number(picked) === cy - 1;
+        const sem = resolveBtechSemesterFromLateral(lateral);
+        const remark = buildBtechIntakeAutoRemark({
+          lateral,
+          selectedYear: Number(picked),
+          calendarYear: cy,
+          semester: sem,
+        });
+        setRegistrationExtras((prev) => {
+          const next: Record<string, unknown> = {
+            ...prev,
+            [fieldName]: picked,
+            academic_year: picked,
+            academicYear: picked,
+            current_year: picked,
+            currentYear: picked,
+            current_semester: sem,
+            currentSemester: sem,
+            semester: sem,
+            semister: sem,
+            student_status: lateral ? 'Lateral' : 'Regular',
+            studentStatus: lateral ? 'Lateral' : 'Regular',
+          };
+          for (const rk of joiningRemarkFieldNamesRef.current) {
+            next[rk] = remark;
+          }
+          return next;
+        });
+        return;
+      }
+      const y = g.standardIntakeYear;
+      setRegistrationExtras((prev) => ({
+        ...prev,
+        [fieldName]: y,
+        academic_year: y,
+        academicYear: y,
+        current_year: y,
+        currentYear: y,
+      }));
+      return;
+    }
+    if (
+      n === 'current_semester' ||
+      n === 'currentsemester' ||
+      n === 'semester' ||
+      n === 'semister'
+    ) {
+      const g = joiningFixedRegistrationRef.current;
+      if (g.isBtech) {
+        setRegistrationExtras((prev) => {
+          const { lateral } = normalizeBtechIntakeYearString(
+            prev.academic_year ?? prev.academicYear,
+            g.calendarYear
+          );
+          const sem = resolveBtechSemesterFromLateral(lateral);
+          return {
+            ...prev,
+            [fieldName]: sem,
+            current_semester: sem,
+            currentSemester: sem,
+            semester: sem,
+            semister: sem,
+          };
+        });
+        return;
+      }
+      const sem = g.standardSemester;
+      setRegistrationExtras((prev) => ({
+        ...prev,
+        [fieldName]: sem,
+        current_semester: sem,
+        currentSemester: sem,
+        semester: sem,
+        semister: sem,
+      }));
+      return;
+    }
+    if (isJoiningRegistrationFieldMapped(fieldName)) {
+      setFormState((prev) => applyMappedRegistrationField(prev, fieldName, value));
+      return;
+    }
+    setRegistrationExtras((prev) => {
+      const next = { ...prev, [fieldName]: value };
+      if (n === 'state' || n === 'address_state') {
+        delete next.district;
+        delete next.address_district;
+        delete next.mandal;
+        delete next.address_mandal;
+      } else if (n === 'district' || n === 'address_district') {
+        delete next.mandal;
+        delete next.address_mandal;
+      } else if (n === 'student_group' || n === 'studentgroup') {
+        delete next.school_or_college_name;
+      }
+      return next;
+    });
+  }, []);
+
+  const selectedCollegeId = useMemo(() => {
+    const rawId =
+      registrationExtras.college_id ??
+      registrationExtras.collegeId ??
+      registrationExtras.school_or_college_id ??
+      registrationExtras.schoolOrCollegeId;
+    if (rawId !== undefined && rawId !== null && String(rawId).trim() !== '') {
+      return String(rawId).trim();
+    }
+    const byName =
+      (registrationExtras.school_or_college_name as string) ||
+      (registrationExtras.college as string) ||
+      '';
+    const match = colleges.find((c) => c.name === byName);
+    return match?.id || '';
+  }, [registrationExtras, colleges]);
+
+  const selectedCollegeName = useMemo(() => {
+    const byId = colleges.find((c) => c.id === selectedCollegeId)?.name;
+    if (byId?.trim()) return byId.trim();
+    return (
+      (registrationExtras.school_or_college_name as string) ||
+      (registrationExtras.college as string) ||
+      ''
+    ).trim();
+  }, [colleges, selectedCollegeId, registrationExtras]);
+
+  const joiningAllowedCollegeIds = useMemo(() => {
+    if (!joiningPermData?.allowedColleges) return undefined;
+    const ids = joiningPermData.allowedColleges
+      .filter((id): id is string => typeof id === 'string')
+      .map((id) => String(id).trim())
+      .filter(Boolean);
+    // Empty array means no restriction (all-college access) — same as undefined
+    return ids.length ? ids : undefined;
+  }, [joiningPermData?.allowedColleges]);
+
+  const visibleColleges = useMemo(() => {
+    if (!Array.isArray(joiningAllowedCollegeIds)) return colleges;
+    const allowedSet = new Set(joiningAllowedCollegeIds);
+    const filtered = colleges.filter((college) => allowedSet.has(college.id));
+    if (!selectedCollegeId) return filtered;
+    if (filtered.some((college) => college.id === selectedCollegeId)) return filtered;
+    const selectedCollege = colleges.find((college) => college.id === selectedCollegeId);
+    return selectedCollege ? [...filtered, selectedCollege] : filtered;
+  }, [colleges, joiningAllowedCollegeIds, selectedCollegeId]);
+
+  const handleCollegeSelect = useCallback(
+    (collegeId: string) => {
+      setRegistrationExtras((prev) => ({
+        ...prev,
+        ...collegeRegistrationPatchFromId(collegeId, colleges),
+      }));
+      // Changing college invalidates course/branch tied to another college_id.
+      if (collegeId) {
+        setFormState((prev) => ({
+          ...prev,
+          courseInfo: {
+            ...prev.courseInfo,
+            courseId: undefined,
+            course: '',
+            branchId: undefined,
+            branch: '',
+          },
+        }));
+      }
+    },
+    [colleges]
+  );
+
+  const {
+    data: courseSettingsResponse,
+    isLoading: isLoadingCourseSettings,
+  } = useQuery({
+    queryKey: ['payment-settings', 'courses'],
+    queryFn: async () => {
+      const response = await paymentSettingsAPI.listCourseSettings();
+      return response;
+    },
+    enabled: !isPublicEdit,
+  });
+
+  const courseSettings: CoursePaymentSettings[] = useMemo(() => {
+    if (isPublicEdit) {
+      const raw = (publicBootstrapQuery.data?.data as { courseSettings?: CoursePaymentSettings[] } | undefined)
+        ?.courseSettings;
+      if (!Array.isArray(raw)) return [];
+      return raw;
+    }
+    const payload = courseSettingsResponse?.data;
+    let settings: CoursePaymentSettings[] = [];
+
+    if (Array.isArray(payload)) {
+      settings = payload as CoursePaymentSettings[];
+    } else if (payload && Array.isArray((payload as any).data)) {
+      settings = (payload as any).data as CoursePaymentSettings[];
+    }
+
+    // Deduplicate branches for each course (frontend safety check)
+    return settings.map((setting) => {
+      const uniqueBranchesMap = new Map<string, typeof setting.branches[0]>();
+      setting.branches.forEach((branch) => {
+        // Use _id for deduplication
+        const branchId = branch._id;
+        if (branchId && !uniqueBranchesMap.has(branchId)) {
+          uniqueBranchesMap.set(branchId, branch);
+        }
+      });
+
+      return {
+        ...setting,
+        branches: Array.from(uniqueBranchesMap.values()),
+      };
+    });
+  }, [isPublicEdit, publicBootstrapQuery.data, courseSettingsResponse]);
+
+  const joiningRegistrationCourseContext = useMemo(() => {
+    const cid = String(formState.courseInfo.courseId || '').trim();
+    const fromSettings = cid
+      ? courseSettings.find((item) => String(item.course._id ?? '').trim() === cid)
+      : undefined;
+    const catalogName =
+      (fromSettings?.course?.name && String(fromSettings.course.name).trim()) ||
+      String(formState.courseInfo.course || '').trim();
+    const catalogCode =
+      fromSettings?.course?.code != null ? String(fromSettings.course.code).trim() : '';
+    const gate = buildJoiningRegistrationFixedGate({
+      courseName: catalogName,
+      courseCode: catalogCode,
+    });
+    const btechYearOptions = gate.isBtech ? buildBtechJoiningYearOptions(gate.calendarYear) : [];
+    const fixed = {
+      year: gate.isBtech ? String(gate.calendarYear) : gate.standardIntakeYear,
+      semester: gate.isBtech ? gate.btechRegularSemester : gate.standardSemester,
+    };
+    return {
+      catalogName,
+      catalogCode,
+      ...gate,
+      btechYearOptions,
+      fixed,
+    };
+  }, [courseSettings, formState.courseInfo.courseId, formState.courseInfo.course]);
+
+  joiningFixedRegistrationRef.current = {
+    isBtech: joiningRegistrationCourseContext.isBtech,
+    calendarYear: joiningRegistrationCourseContext.calendarYear,
+    standardIntakeYear: joiningRegistrationCourseContext.standardIntakeYear,
+    standardSemester: joiningRegistrationCourseContext.standardSemester,
+    btechRegularSemester: joiningRegistrationCourseContext.btechRegularSemester,
+    btechLateralSemester: joiningRegistrationCourseContext.btechLateralSemester,
+  };
+
+  const btechRegistrationSemester = useMemo(() => {
+    const gate = joiningRegistrationCourseContext;
+    if (!gate.isBtech) return gate.standardSemester;
+    const { lateral } = normalizeBtechIntakeYearString(
+      registrationExtras.academic_year ?? registrationExtras.academicYear,
+      gate.calendarYear
+    );
+    return resolveBtechSemesterFromLateral(lateral);
+  }, [
+    joiningRegistrationCourseContext.isBtech,
+    joiningRegistrationCourseContext.calendarYear,
+    joiningRegistrationCourseContext.standardSemester,
+    registrationExtras.academic_year,
+    registrationExtras.academicYear,
+  ]);
+
+  useEffect(() => {
+    if (!joiningRecord?._id) return;
+    const saved = joiningRecord.registrationFormData;
+    const ld = (joiningRecord.leadData || {}) as Record<string, unknown>;
+    const dyn = ld.dynamicFields || ld.dynamic_fields;
+    const merged: Record<string, unknown> = {
+      ...(dyn && typeof dyn === 'object' ? (dyn as Record<string, unknown>) : {}),
+      ...(saved && typeof saved === 'object' ? saved : {}),
+    };
+    const cleaned = { ...merged };
+    Object.keys(cleaned).forEach((k) => {
+      if (isJoiningRegistrationFieldMapped(k)) delete cleaned[k];
+    });
+    let next = stripJoiningRedundantRegistrationExtras(cleaned);
+    const leadSnap = lead as LeadLike | undefined;
+    // Non–B.Tech: mirror lead intake on auxiliary keys. B.Tech uses calendar current vs prior-year rule only.
+    if (
+      !joiningRegistrationCourseContext.isBtech &&
+      leadSnap?.academicYear != null &&
+      !Number.isNaN(Number(leadSnap.academicYear))
+    ) {
+      const y = String(leadSnap.academicYear);
+      next = { ...next, academic_year: y, academicYear: y };
+    }
+    const uploadBid =
+      leadSnap?.uploadBatchId != null && String(leadSnap.uploadBatchId).trim() !== ''
+        ? String(leadSnap.uploadBatchId).trim()
+        : '';
+    if (uploadBid) {
+      next = {
+        ...next,
+        upload_batch_id: uploadBid,
+        uploadBatchId: uploadBid,
+        batch_id: uploadBid,
+        batchId: uploadBid,
+        batch: uploadBid,
+        upload_batch: uploadBid,
+      };
+    }
+    if (leadSnap?.studentGroup && String(leadSnap.studentGroup).trim()) {
+      const sg = String(leadSnap.studentGroup).trim();
+      if (next.student_group === undefined && next.studentGroup === undefined) {
+        next = { ...next, student_group: sg };
+      }
+    }
+    if (next.student_status === undefined && next.studentStatus === undefined) {
+      next = { ...next, student_status: 'Regular' };
+    }
+    const gate = joiningRegistrationCourseContext;
+    if (gate.isBtech) {
+      const { year, lateral } = normalizeBtechIntakeYearString(
+        next.academic_year ?? next.academicYear,
+        gate.calendarYear
+      );
+      const sem = resolveBtechSemesterFromLateral(lateral);
+      const remark = buildBtechIntakeAutoRemark({
+        lateral,
+        selectedYear: Number(year),
+        calendarYear: gate.calendarYear,
+        semester: sem,
+      });
+      next = {
+        ...next,
+        academic_year: year,
+        academicYear: year,
+        current_year: year,
+        currentYear: year,
+        current_semester: sem,
+        currentSemester: sem,
+        semester: sem,
+        semister: sem,
+        student_status: lateral ? 'Lateral' : 'Regular',
+        studentStatus: lateral ? 'Lateral' : 'Regular',
+      };
+      for (const rk of joiningRemarkFieldNames) {
+        next[rk] = remark;
+      }
+    } else {
+      const { year, semester } = gate.fixed;
+      next = {
+        ...next,
+        academic_year: year,
+        academicYear: year,
+        current_year: year,
+        currentYear: year,
+        current_semester: semester,
+        currentSemester: semester,
+        semester: semester,
+        semister: semester,
+      };
+    }
+    const totalYearsForBatch = resolveTotalYearsFromCourseSettings(
+      courseSettings,
+      formState.courseInfo.courseId,
+      formState.courseInfo.branchId
+    );
+    const intakeForBatchSanitize = gate.isBtech
+      ? Number(normalizeBtechIntakeYearString(next.academic_year ?? next.academicYear, gate.calendarYear).year)
+      : clampApplicationCalendarYear(
+          leadSnap?.academicYear != null && !Number.isNaN(Number(leadSnap.academicYear))
+            ? Number(leadSnap.academicYear)
+            : Number(next.academic_year ?? next.academicYear ?? gate.calendarYear)
+        );
+    for (const f of sortedRegistrationFields) {
+      const fn = String((f as { fieldName?: string }).fieldName || '').trim();
+      const lab = String((f as { fieldLabel?: string }).fieldLabel || '');
+      const rep = sanitizeJoiningRegistrationBatchFieldValue(
+        fn,
+        lab,
+        next[fn],
+        intakeForBatchSanitize,
+        totalYearsForBatch,
+        gate.calendarYear,
+        gate.isBtech ? 4 : null
+      );
+      if (rep != null) (next as Record<string, unknown>)[fn] = rep;
+    }
+    setRegistrationExtras((prev) => mergePreservedCollegeRegistrationExtras(next, prev));
+  }, [
+    joiningRecord?._id,
+    joiningRecord?.updatedAt,
+    lead,
+    formState.courseInfo.courseId,
+    formState.courseInfo.course,
+    joiningRegistrationCourseContext.isBtech,
+    joiningRegistrationCourseContext.calendarYear,
+    joiningRegistrationCourseContext.standardIntakeYear,
+    joiningRegistrationCourseContext.standardSemester,
+    joiningRegistrationCourseContext.btechRegularSemester,
+    joiningRegistrationCourseContext.btechLateralSemester,
+    joiningRegistrationCourseContext.fixed.year,
+    joiningRegistrationCourseContext.fixed.semester,
+    joiningRemarkFieldNames,
+    sortedRegistrationFields,
+    courseSettings,
+    formState.courseInfo.branchId,
+  ]);
+
+  /** Application (intake) academic year from lead + completion year = application year + course/branch total_years. */
+  useEffect(() => {
+    const leadSnap = lead as LeadLike | undefined;
+    const appRaw = leadSnap?.academicYear;
+    if (appRaw == null || Number.isNaN(Number(appRaw))) return;
+    const applicationYear = Number(appRaw);
+    if (!sortedRegistrationFields.length) return;
+    const gate = joiningRegistrationCourseContext;
+    const totalYears = resolveTotalYearsFromCourseSettings(
+      courseSettings,
+      formState.courseInfo.courseId,
+      formState.courseInfo.branchId
+    );
+    const remarkKeys = joiningRemarkFieldNames;
+
+    setRegistrationExtras((prev) => {
+      let next = { ...prev };
+      let intakeForPatches: number;
+      if (gate.isBtech) {
+        const { year } = normalizeBtechIntakeYearString(
+          next.academic_year ?? next.academicYear,
+          gate.calendarYear
+        );
+        intakeForPatches = Number(year);
+      } else {
+        intakeForPatches = applicationYear;
+      }
+      const patches = computeAcademicYearRegistrationPatches(
+        sortedRegistrationFields,
+        intakeForPatches,
+        totalYears
+      );
+      let changed = false;
+      for (const [k, v] of Object.entries(patches)) {
+        if (next[k] !== v) {
+          next[k] = v;
+          changed = true;
+        }
+      }
+      if (gate.isBtech) {
+        const { year, lateral } = normalizeBtechIntakeYearString(
+          next.academic_year ?? next.academicYear,
+          gate.calendarYear
+        );
+        const sem = resolveBtechSemesterFromLateral(lateral);
+        const remark = buildBtechIntakeAutoRemark({
+          lateral,
+          selectedYear: Number(year),
+          calendarYear: gate.calendarYear,
+          semester: sem,
+        });
+        const canon: Record<string, string> = {
+          academic_year: year,
+          academicYear: year,
+          current_year: year,
+          currentYear: year,
+          current_semester: sem,
+          currentSemester: sem,
+          semester: sem,
+          semister: sem,
+          student_status: lateral ? 'Lateral' : 'Regular',
+          studentStatus: lateral ? 'Lateral' : 'Regular',
+        };
+        for (const [k, v] of Object.entries(canon)) {
+          if (next[k] !== v) {
+            next[k] = v;
+            changed = true;
+          }
+        }
+        for (const rk of remarkKeys) {
+          if (next[rk] !== remark) {
+            next[rk] = remark;
+            changed = true;
+          }
+        }
+      } else {
+        const canon: Record<string, string> = {
+          academic_year: gate.standardIntakeYear,
+          academicYear: gate.standardIntakeYear,
+          current_year: gate.standardIntakeYear,
+          currentYear: gate.standardIntakeYear,
+          current_semester: gate.standardSemester,
+          currentSemester: gate.standardSemester,
+          semester: gate.standardSemester,
+          semister: gate.standardSemester,
+        };
+        for (const [k, v] of Object.entries(canon)) {
+          if (next[k] !== v) {
+            next[k] = v;
+            changed = true;
+          }
+        }
+      }
+      for (const f of sortedRegistrationFields) {
+        const fn = String((f as { fieldName?: string }).fieldName || '').trim();
+        const lab = String((f as { fieldLabel?: string }).fieldLabel || '');
+        const rep = sanitizeJoiningRegistrationBatchFieldValue(
+          fn,
+          lab,
+          next[fn],
+          intakeForPatches,
+          totalYears,
+          gate.calendarYear,
+          gate.isBtech ? 4 : null
+        );
+        if (rep != null) {
+          (next as Record<string, unknown>)[fn] = rep;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [
+    sortedRegistrationFields,
+    registrationFormId,
+    lead,
+    formState.courseInfo.courseId,
+    formState.courseInfo.branchId,
+    formState.courseInfo.course,
+    courseSettings,
+    joiningRegistrationCourseContext.isBtech,
+    joiningRegistrationCourseContext.calendarYear,
+    joiningRegistrationCourseContext.standardIntakeYear,
+    joiningRegistrationCourseContext.standardSemester,
+    joiningRegistrationCourseContext.btechRegularSemester,
+    joiningRegistrationCourseContext.btechLateralSemester,
+    joiningRegistrationCourseContext.catalogName,
+    joiningRegistrationCourseContext.catalogCode,
+    joiningRemarkFieldNames,
+    registrationExtras.academic_year,
+    registrationExtras.academicYear,
+  ]);
+
+  /** Correct Batch / admission-batch year when it was set to program-end (`intake + totalYears`) or label-only batch fields were missed by earlier passes. */
+  useEffect(() => {
+    if (!sortedRegistrationFields.length) return;
+    const gate = joiningRegistrationCourseContext;
+    const totalYears = resolveTotalYearsFromCourseSettings(
+      courseSettings,
+      formState.courseInfo.courseId,
+      formState.courseInfo.branchId
+    );
+    const leadSnap = lead as LeadLike | undefined;
+    let intake = gate.calendarYear;
+    if (gate.isBtech) {
+      intake = Number(
+        normalizeBtechIntakeYearString(
+          registrationExtras.academic_year ?? registrationExtras.academicYear,
+          gate.calendarYear
+        ).year
+      );
+    } else if (leadSnap?.academicYear != null && !Number.isNaN(Number(leadSnap.academicYear))) {
+      intake = clampApplicationCalendarYear(Number(leadSnap.academicYear));
+    } else {
+      intake = clampApplicationCalendarYear(
+        Number(registrationExtras.academic_year ?? registrationExtras.academicYear ?? gate.calendarYear)
+      );
+    }
+    setRegistrationExtras((prev) => {
+      let next = { ...prev };
+      let changed = false;
+      for (const f of sortedRegistrationFields) {
+        const fn = String((f as { fieldName?: string }).fieldName || '').trim();
+        const lab = String((f as { fieldLabel?: string }).fieldLabel || '');
+        const rep = sanitizeJoiningRegistrationBatchFieldValue(
+          fn,
+          lab,
+          next[fn],
+          intake,
+          totalYears,
+          gate.calendarYear,
+          gate.isBtech ? 4 : null
+        );
+        if (rep != null && String(next[fn] ?? '') !== rep) {
+          next[fn] = rep;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [
+    sortedRegistrationFields,
+    joiningRegistrationCourseContext.isBtech,
+    joiningRegistrationCourseContext.calendarYear,
+    courseSettings,
+    formState.courseInfo.courseId,
+    formState.courseInfo.branchId,
+    lead,
+    registrationExtras.academic_year,
+    registrationExtras.academicYear,
+    registrationExtras,
+  ]);
+
+  const { data: programLevelsResponse } = useQuery({
+    queryKey: ['courses', 'program-levels'],
+    queryFn: async () => courseAPI.listProgramLevels(),
+    staleTime: 120_000,
+    enabled: !isPublicEdit,
+  });
+
+  const { data: studentQuotasResponse } = useQuery({
+    queryKey: ['courses', 'student-quotas'],
+    queryFn: async () => courseAPI.listStudentQuotas(),
+    staleTime: 120_000,
+    enabled: !isPublicEdit,
+  });
+
+  const { data: casteCatalogResponse, isLoading: isCasteCatalogLoading } = useQuery({
+    queryKey: ['courses', 'castes-catalog'],
+    queryFn: async () => courseAPI.listCastes(),
+    staleTime: 60_000,
+    enabled: !isPublicEdit,
+  });
+
+  const programLevels: string[] = useMemo(() => {
+    if (isPublicEdit) {
+      const pl = (publicBootstrapQuery.data?.data as { programLevels?: string[] } | undefined)?.programLevels;
+      return Array.isArray(pl) ? pl : [];
+    }
+    const payload = programLevelsResponse?.data;
+    if (Array.isArray(payload)) {
+      return payload as string[];
+    }
+    if (payload && Array.isArray((payload as { data?: unknown }).data)) {
+      return (payload as { data: string[] }).data;
+    }
+    return [];
+  }, [isPublicEdit, publicBootstrapQuery.data, programLevelsResponse]);
+
+  const quotaSelectOptions: string[] = useMemo(() => {
+    if (isPublicEdit) {
+      const sq = (publicBootstrapQuery.data?.data as { studentQuotas?: unknown[] } | undefined)
+        ?.studentQuotas;
+      const labels = quotaLabelsFromCatalog(parseStudentQuotasResponse(sq));
+      return mergeQuotaSelectOptions(labels, formState.courseInfo.quota);
+    }
+    const labels = quotaLabelsFromCatalog(parseStudentQuotasResponse(studentQuotasResponse));
+    return mergeQuotaSelectOptions(labels, formState.courseInfo.quota);
+  }, [
+    isPublicEdit,
+    publicBootstrapQuery.data,
+    studentQuotasResponse,
+    formState.courseInfo.quota,
+  ]);
+
+  const casteCatalog = useMemo(() => {
+    if (isPublicEdit) {
+      const bootstrap = publicBootstrapQuery.data?.data as
+        | { casteCatalog?: unknown; castes?: unknown; casteCategories?: unknown }
+        | undefined;
+      if (bootstrap?.casteCatalog) {
+        return parseCasteCatalogResponse(bootstrap.casteCatalog);
+      }
+      return parseCasteCatalogResponse({
+        categories: bootstrap?.casteCategories,
+        castes: bootstrap?.castes,
+      });
+    }
+    return parseCasteCatalogResponse(casteCatalogResponse);
+  }, [isPublicEdit, publicBootstrapQuery.data, casteCatalogResponse]);
+
+  const casteCategories: CasteCategoryCatalogItem[] = casteCatalog.categories;
+  const allCastes: CasteCatalogItem[] = casteCatalog.castes;
+  const casteCatalogReady = casteCategories.length > 0 && allCastes.length > 0;
+  const casteCatalogLoading = isPublicEdit
+    ? Boolean(publicBootstrapQuery.isLoading)
+    : isCasteCatalogLoading;
+
+  const selectedCasteCategoryId = useMemo(() => {
+    if (formState.reservation.categoryId) return String(formState.reservation.categoryId);
+    return resolveCasteCategoryIdForValue(
+      formState.reservation.general,
+      casteCategories,
+      allCastes
+    );
+  }, [
+    formState.reservation.categoryId,
+    formState.reservation.general,
+    casteCategories,
+    allCastes,
+  ]);
+
+  const castesForSelectedCategory = useMemo(() => {
+    if (!selectedCasteCategoryId) return allCastes;
+    return allCastes.filter((c) => String(c.categoryId) === String(selectedCasteCategoryId));
+  }, [allCastes, selectedCasteCategoryId]);
+
+  /** Caste is optional; only show when casteId is set (or legacy nested name ≠ category). */
+  const selectedCasteSelectValue = useMemo(() => {
+    if (formState.reservation.casteId) return String(formState.reservation.casteId);
+    const general = String(formState.reservation.general || '').trim();
+    if (!general) return '';
+    const category = casteCategories.find(
+      (c) => String(c.id) === String(selectedCasteCategoryId || '')
+    );
+    // general is category name under the new contract — not a nested caste selection.
+    if (category && general.toLowerCase() === String(category.name || '').trim().toLowerCase()) {
+      return '';
+    }
+    // Legacy rows that still stored a nested caste name in reservation_general.
+    return (
+      resolveCasteForValue(general, castesForSelectedCategory, selectedCasteCategoryId)?.id ||
+      general
+    );
+  }, [
+    formState.reservation.casteId,
+    formState.reservation.general,
+    casteCategories,
+    selectedCasteCategoryId,
+    castesForSelectedCategory,
+  ]);
+
+  const filteredCourseSettings = useMemo(() => {
+    const collegeKey = (selectedCollegeId || '').trim();
+    let list = courseSettings;
+    if (collegeKey) {
+      list = list.filter((item) => {
+        const cid =
+          item.course.collegeId !== undefined && item.course.collegeId !== null
+            ? String(item.course.collegeId).trim()
+            : '';
+        return cid === collegeKey;
+      });
+    } else if (Array.isArray(joiningAllowedCollegeIds)) {
+      const allowedCollegeSet = new Set(joiningAllowedCollegeIds);
+      list = list.filter((item) => {
+        const cid =
+          item.course.collegeId !== undefined && item.course.collegeId !== null
+            ? String(item.course.collegeId).trim()
+            : '';
+        return cid !== '' && allowedCollegeSet.has(cid);
+      });
+    }
+    const pl = (formState.courseInfo.programLevel || '').trim();
+    if (programLevels.length > 0 && !pl) {
+      return [] as CoursePaymentSettings[];
+    }
+    if (!pl || programLevels.length === 0) {
+      return list;
+    }
+    return list.filter((item) => {
+      const lv = item.course.level != null ? String(item.course.level).trim() : '';
+      return lv === pl;
+    });
+  }, [courseSettings, formState.courseInfo.programLevel, programLevels, selectedCollegeId, joiningAllowedCollegeIds]);
+
+  /**
+   * Managed course IDs must belong to the selected secondary college (`courses.college_id`).
+   * When registration extras still hold a stale college after an admission course/branch
+   * change, sync college from the managed course instead of wiping course/branch —
+   * otherwise Edit Application reloads the old college and looks "stuck" on old values.
+   */
+  useEffect(() => {
+    const collegeKey = (selectedCollegeId || '').trim();
+    if (!collegeKey) return;
+    const courseId = String(formState.courseInfo.courseId || '').trim();
+    if (!courseId) return;
+    const setting = courseSettings.find(
+      (item) => String(item.course._id ?? '').trim() === courseId
+    );
+    if (!setting) return;
+    const rowCollege =
+      setting.course.collegeId !== undefined && setting.course.collegeId !== null
+        ? String(setting.course.collegeId).trim()
+        : '';
+    if (!rowCollege || rowCollege === collegeKey) return;
+    setRegistrationExtras((prev) => ({
+      ...prev,
+      ...collegeRegistrationPatchFromId(rowCollege, colleges),
+    }));
+  }, [selectedCollegeId, formState.courseInfo.courseId, courseSettings, colleges]);
+
+  const programLevelTrimmed = (formState.courseInfo.programLevel || '').trim();
+  const { data: certificateGuidanceResponse, isLoading: isLoadingCertificateGuidance } = useQuery({
+    queryKey: ['courses', 'certificate-guidance', programLevelTrimmed],
+    enabled: !isPublicEdit && Boolean(programLevelTrimmed),
+    queryFn: async () => courseAPI.getCertificateGuidance(programLevelTrimmed),
+  });
+
+  const certificateGuidance: CertificateGuidance | null = useMemo(() => {
+    // Public joining links are Step 1 only — certificate rules load on the admission desk.
+    if (isPublicEdit) return null;
+    // Unwrap the `{ success, data: { … } }` envelope returned by the API.
+    // Keep the guidance object even when empty so the UI can show
+    // an actionable "no rules for this level" banner instead of going silent.
+    const envelope = certificateGuidanceResponse?.data ?? certificateGuidanceResponse;
+    const inner =
+      envelope && typeof envelope === 'object' && 'data' in envelope
+        ? (envelope as { data: unknown }).data
+        : envelope;
+    if (!inner || typeof inner !== 'object') return null;
+    return inner as CertificateGuidance;
+  }, [isPublicEdit, certificateGuidanceResponse]);
+
+  useEffect(() => {
+    if (isPublicEdit) return;
+    const items = certificateGuidance?.items;
+    if (!items?.length || certificateGuidance?.format !== 'certificate_config') {
+      return;
+    }
+    setRegistrationExtras((prev) => {
+      const prevRaw = prev.certificate_checklist;
+      const prevMap =
+        prevRaw && typeof prevRaw === 'object' && !Array.isArray(prevRaw)
+          ? (prevRaw as Record<string, unknown>)
+          : {};
+      const nextMap: Record<string, CertificateChecklistStoredValue> = {};
+      for (const item of items) {
+        const id = String(item.id || item.name || '').trim();
+        if (!id) continue;
+        const opts = listCertificateItemOptions(item);
+        const prevEntry = parseCertificateChecklistEntry(prevMap[id]);
+        if (opts.length > 0) {
+          const valid = new Set(opts.map((o) => o.encoded));
+          const option =
+            prevEntry.option && valid.has(prevEntry.option)
+              ? prevEntry.option
+              : opts[0]!.encoded;
+          nextMap[id] = { status: prevEntry.status, option };
+        } else {
+          nextMap[id] = prevEntry.status;
+        }
+      }
+      const prevKeys = Object.keys(prevMap).sort().join(',');
+      const nextKeys = Object.keys(nextMap).sort().join(',');
+      if (prevKeys === nextKeys) {
+        let allMatch = true;
+        for (const k of Object.keys(nextMap)) {
+          if (!certificateChecklistValuesEqual(prevMap[k], nextMap[k])) {
+            allMatch = false;
+            break;
+          }
+        }
+        if (allMatch) return prev;
+      }
+      return { ...prev, certificate_checklist: nextMap };
+    });
+  }, [certificateGuidance?.format, certificateGuidance?.items]);
+
+  const certificateChecklistParsed = useMemo(() => {
+    const raw = registrationExtras.certificate_checklist;
+    const out: Record<string, { status: JoiningDocumentStatus; option?: string }> = {};
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return out;
+    }
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      out[k] = parseCertificateChecklistEntry(v);
+    }
+    return out;
+  }, [registrationExtras.certificate_checklist]);
+
+  const derivedCertificationStatus = useMemo((): 'Verified' | 'Unverified' | null => {
+    if (certificateGuidance?.format !== 'certificate_config' || !certificateGuidance.items?.length) {
+      return null;
+    }
+    return computeCertificationStatusFromChecklist(
+      certificateGuidance.items,
+      registrationExtras.certificate_checklist
+    );
+  }, [certificateGuidance, registrationExtras.certificate_checklist]);
+
+  const documentsChecklistForPrint = useMemo(() => {
+    const labels: Record<string, string> = {};
+    const documents: Record<string, JoiningDocumentStatus | undefined> = {};
+    const quota = formState.courseInfo.quota;
+    const isEws = formState.reservation.isEws === true;
+    (Object.entries(documentLabels) as [keyof JoiningDocuments, string][]).forEach(([key, label]) => {
+      if (!isJoiningDocumentChecklistKeyVisible(key, quota, { isEws })) return;
+      labels[key] = label;
+      documents[key] = formState.documents[key] || 'pending';
+    });
+    return { labels, documents };
+  }, [formState.documents, formState.courseInfo.quota, formState.reservation.isEws]);
+
+  const isManagementQuotaSelected = isManagementQuotaLabel(
+    String(formState.courseInfo.quota ?? '').trim()
+  );
+
+  const getRegistrationFieldValue = useCallback(
+    (fieldName: string): string | boolean => {
+      const fl = fieldName.toLowerCase();
+      if (isJoiningRegistrationFieldMapped(fieldName)) {
+        const v = readMappedRegistrationField(formState, fieldName);
+        if (fl === 'student_gender' || fl === 'gender') {
+          const g = String(v).trim();
+          if (!g) return '';
+          const low = g.toLowerCase();
+          if (low === 'male' || low === 'm') return 'Male';
+          if (low === 'female' || low === 'f') return 'Female';
+          if (low === 'other' || low === 'o') return 'Other';
+          return g;
+        }
+        return v;
+      }
+      if (fl === 'student_status' || fl === 'studentstatus') {
+        const v = registrationExtras[fieldName] ?? registrationExtras.student_status;
+        if (v === undefined || v === null || String(v).trim() === '') return 'Regular';
+        return String(v);
+      }
+      if (
+        fl === 'academic_year' ||
+        fl === 'academicyear' ||
+        fl === 'current_year' ||
+        fl === 'currentyear'
+      ) {
+        if (joiningRegistrationCourseContext.isBtech) {
+          const v =
+            registrationExtras[fieldName] ??
+            registrationExtras.academic_year ??
+            registrationExtras.academicYear ??
+            registrationExtras.current_year ??
+            registrationExtras.currentYear;
+          if (v !== undefined && v !== null && String(v).trim() !== '') return String(v);
+          return String(joiningRegistrationCourseContext.calendarYear);
+        }
+        return joiningRegistrationCourseContext.standardIntakeYear;
+      }
+      if (
+        fl === 'current_semester' ||
+        fl === 'currentsemester' ||
+        fl === 'semester' ||
+        fl === 'semister'
+      ) {
+        if (joiningRegistrationCourseContext.isBtech) {
+          return btechRegistrationSemester;
+        }
+        return joiningRegistrationCourseContext.standardSemester;
+      }
+      if (
+        fl === 'certification_status' ||
+        fl === 'certificationstatus' ||
+        fl === 'certificate_status' ||
+        fl === 'certificatestatus' ||
+        fl === 'certificates_status' ||
+        fl === 'certificatesstatus' ||
+        fl === 'certification'
+      ) {
+        if (derivedCertificationStatus !== null) {
+          return derivedCertificationStatus;
+        }
+        const v = registrationExtras[fieldName];
+        if (v === undefined || v === null || String(v).trim() === '') return 'Unverified';
+        return String(v);
+      }
+      if (isAdmissionDateEntryField({ fieldName })) {
+        if (admissionDateLockedRef.current) {
+          const locked =
+            normalizeAdmissionDateEntryValue(registrationExtras[fieldName]) ||
+            normalizeAdmissionDateEntryValue(registrationExtras.admission_date) ||
+            normalizeAdmissionDateEntryValue(registrationExtras.date_of_admission) ||
+            normalizeAdmissionDateEntryValue(registrationExtras.date_of_entry) ||
+            normalizeAdmissionDateEntryValue(registrationExtras.entry_date) ||
+            normalizeAdmissionDateEntryValue(admissionRecord?.admissionDate) ||
+            normalizeAdmissionDateEntryValue(admissionRecord?.createdAt);
+          return locked || localCalendarDateYmd();
+        }
+        return localCalendarDateYmd();
+      }
+      const v = registrationExtras[fieldName];
+      if (typeof v === 'boolean') return v;
+      if (v === undefined || v === null) return '';
+      return String(v);
+    },
+    [
+      formState,
+      registrationExtras,
+      derivedCertificationStatus,
+      joiningRegistrationCourseContext.isBtech,
+      joiningRegistrationCourseContext.calendarYear,
+      joiningRegistrationCourseContext.standardIntakeYear,
+      joiningRegistrationCourseContext.standardSemester,
+      joiningRegistrationCourseContext.btechRegularSemester,
+      joiningRegistrationCourseContext.btechLateralSemester,
+      btechRegistrationSemester,
+      admissionRecord?.admissionDate,
+      admissionRecord?.createdAt,
+    ]
+  );
+
+  const admissionNumberDisplay =
+    meta.admissionNumber || admissionRecord?.admissionNumber || lead?.admissionNumber || null;
+  const admissionDateLocked = Boolean(admissionNumberDisplay);
+  admissionDateLockedRef.current = admissionDateLocked;
+  const admissionDateCurrentYmd = localCalendarDateYmd();
+  const feeMongoAdmissionNumber =
+    admissionRecord?.admissionNumber || meta.admissionNumber || lead?.admissionNumber || null;
+
+  // Keep admission/entry date extras on today's date until the admission number exists.
+  useEffect(() => {
+    if (admissionDateLocked) return;
+    const today = localCalendarDateYmd();
+    const fieldKeys = joiningRegistrationDisplayFieldsCoerced
+      .filter((f) => isAdmissionDateEntryField(f))
+      .map((f) => String(f.fieldName || '').trim())
+      .filter(Boolean);
+    const keys = fieldKeys.length
+      ? fieldKeys
+      : ['admission_date', 'date_of_admission', 'date_of_entry', 'entry_date'];
+    setRegistrationExtras((prev) => {
+      let changed = false;
+      const next: Record<string, unknown> = { ...prev };
+      for (const key of keys) {
+        if (String(next[key] ?? '').trim() !== today) {
+          next[key] = today;
+          changed = true;
+        }
+      }
+      // Keep common aliases aligned.
+      for (const alias of ['admission_date', 'date_of_admission', 'date_of_entry', 'entry_date']) {
+        if (String(next[alias] ?? '').trim() !== today) {
+          next[alias] = today;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [admissionDateLocked, joiningRegistrationDisplayFieldsCoerced]);
+
+  const courseQuotaIntakeFields = useMemo(() => {
+    if (!registrationIntakeYearField && !registrationIntakeSemesterField && !admissionNumberDisplay) {
+      return null;
+    }
+    const btechYearPick =
+      joiningRegistrationCourseContext.isBtech &&
+      (joiningRegistrationCourseContext.btechYearOptions?.length ?? 0) > 0;
+    const fixedYear = joiningRegistrationCourseContext.fixed.year;
+    const fixedSem = joiningRegistrationCourseContext.isBtech
+      ? btechRegistrationSemester
+      : joiningRegistrationCourseContext.standardSemester;
+    const selectClass = JOINING_FORM_CONTROL_CLASS;
+
+    return (
+      <>
+        {registrationIntakeYearField ? (
+          <div className="min-w-0">
+            <label className={JOINING_FORM_LABEL_CLASS}>
+              {registrationIntakeYearField.fieldLabel}
+              {registrationIntakeYearField.isRequired ? (
+                <span className="text-red-500">*</span>
+              ) : null}
+            </label>
+            <select
+              value={
+                btechYearPick
+                  ? String(
+                      getRegistrationFieldValue(registrationIntakeYearField.fieldName) || fixedYear
+                    )
+                  : fixedYear
+              }
+              onChange={(event) =>
+                handleRegistrationFieldChange(
+                  registrationIntakeYearField.fieldName,
+                  event.target.value
+                )
+              }
+              disabled={!btechYearPick}
+              className={selectClass}
+            >
+              <option value="">Select {registrationIntakeYearField.fieldLabel}</option>
+              {(btechYearPick
+                ? joiningRegistrationCourseContext.btechYearOptions
+                : [{ value: fixedYear, label: fixedYear }]
+              )?.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {btechYearPick ? (
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                Current year → semester <span className="font-medium">1-1</span> (regular). Prior year →{' '}
+                <span className="font-medium">lateral entry</span> and semester{' '}
+                <span className="font-medium">2-1</span>.
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-blue-600 dark:text-blue-300">
+                Fixed by admissions workflow configuration.
+              </p>
+            )}
+          </div>
+        ) : null}
+        {registrationIntakeSemesterField ? (
+          <div className="min-w-0">
+            <label className={JOINING_FORM_LABEL_CLASS}>
+              {registrationIntakeSemesterField.fieldLabel}
+              {registrationIntakeSemesterField.isRequired ? (
+                <span className="text-red-500">*</span>
+              ) : null}
+            </label>
+            <select
+              value={fixedSem}
+              onChange={(event) =>
+                handleRegistrationFieldChange(
+                  registrationIntakeSemesterField.fieldName,
+                  event.target.value
+                )
+              }
+              disabled
+              className={selectClass}
+            >
+              <option value={fixedSem}>{fixedSem}</option>
+            </select>
+            <p className="mt-1 text-xs text-blue-600 dark:text-blue-300">
+              Fixed by admissions workflow configuration.
+            </p>
+          </div>
+        ) : null}
+        {admissionNumberDisplay ? (
+          <div className="min-w-0">
+            <label className={JOINING_FORM_LABEL_CLASS}>Admission Number</label>
+            <div
+              className={cn(
+                JOINING_FORM_CONTROL_CLASS,
+                'border-emerald-200 bg-emerald-50 font-bold tracking-wide text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-900/40 dark:text-emerald-200'
+              )}
+            >
+              {admissionNumberDisplay}
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  }, [
+    registrationIntakeYearField,
+    registrationIntakeSemesterField,
+    admissionNumberDisplay,
+    joiningRegistrationCourseContext.isBtech,
+    joiningRegistrationCourseContext.btechYearOptions,
+    joiningRegistrationCourseContext.fixed.year,
+    joiningRegistrationCourseContext.standardSemester,
+    btechRegistrationSemester,
+    getRegistrationFieldValue,
+    handleRegistrationFieldChange,
+  ]);
+
+  useEffect(() => {
+    if (!joiningRecord?._id || courseSettings.length === 0) return;
+    const fromApi = joiningRecord.courseInfo?.programLevel;
+    if (fromApi && String(fromApi).trim()) return;
+    const cid = joiningRecord.courseInfo?.courseId;
+    if (!cid) return;
+    const cidTarget = String(cid).trim();
+    if (!cidTarget) return;
+    const entry = courseSettings.find((item) => String(item.course._id ?? '').trim() === cidTarget);
+    const inferred =
+      entry?.course?.level != null && String(entry.course.level).trim()
+        ? String(entry.course.level).trim()
+        : '';
+    if (!inferred) return;
+    setFormState((prev) => {
+      if ((prev.courseInfo.programLevel || '').trim()) return prev;
+      return {
+        ...prev,
+        courseInfo: { ...prev.courseInfo, programLevel: inferred },
+      };
+    });
+  }, [joiningRecord?._id, joiningRecord?.courseInfo?.courseId, joiningRecord?.courseInfo?.programLevel, courseSettings]);
+
+  /**
+   * Resolve managed course / branch IDs (and the program level) by matching the
+   * lead's free-text course/branch strings against the secondary-DB catalog.
+   *
+   * Why this matters: leads carry `course_interested` as a single free-text
+   * field (no FK to the secondary DB), and the value frequently combines the
+   * course AND branch — e.g. "B.Tech CSE", "MBA Marketing", "Diploma EEE". The
+   * managed catalog, on the other hand, splits these into a course row
+   * ("B.Tech") with branches underneath ("CSE", "ECE", …). Without smarter
+   * matching the user complaint surfaces as:
+   *  - The branches dropdown stays empty because no `courseId` got picked.
+   *  - The certificate-checklist (keyed by program level) never loads.
+   *  - The "interested" lead text and the "actual" managed values diverge.
+   *
+   * Strategy:
+   *  1. Normalize both sides (lowercased, punctuation collapsed to spaces).
+   *  2. For every managed course, find the longest course-name segment that
+   *     occurs inside the lead's course/branch text. Track the leftover text.
+   *  3. Within the candidate course, try to match a branch from either the
+   *     lead's separate `branch` label OR the leftover text.
+   *  4. Pick the candidate with the best combined coverage (course match +
+   *     branch match) so "B.Tech CSE" prefers the "B.Tech" course whose "CSE"
+   *     branch also fits, rather than another course that incidentally shares
+   *     a substring.
+   */
+  useEffect(() => {
+    if (courseSettings.length === 0) return;
+    const collegeKey = (selectedCollegeId || '').trim();
+    const catalogForMatch = collegeKey
+      ? courseSettings.filter((item) => {
+          const c =
+            item.course.collegeId !== undefined && item.course.collegeId !== null
+              ? String(item.course.collegeId).trim()
+              : '';
+          return c === collegeKey;
+        })
+      : Array.isArray(joiningAllowedCollegeIds)
+      ? courseSettings.filter((item) => {
+          const c =
+            item.course.collegeId !== undefined && item.course.collegeId !== null
+              ? String(item.course.collegeId).trim()
+              : '';
+          return c !== '' && joiningAllowedCollegeIds.includes(c);
+        })
+      : courseSettings;
+    if (collegeKey && catalogForMatch.length === 0) return;
+    const courseLabel = (formState.courseInfo.course || '').trim();
+    const branchLabel = (formState.courseInfo.branch || '').trim();
+    const hasCourseId = Boolean((formState.courseInfo.courseId || '').toString().trim());
+    const hasBranchId = Boolean((formState.courseInfo.branchId || '').toString().trim());
+    const hasProgramLevel = Boolean((formState.courseInfo.programLevel || '').trim());
+    // Managed course + branch ids are authoritative — do not re-match from stale free-text.
+    if (hasCourseId && hasBranchId && hasProgramLevel) return;
+    if (hasCourseId && hasBranchId) {
+      const cidTarget = String(formState.courseInfo.courseId ?? '').trim();
+      const setting = catalogForMatch.find(
+        (item) => String(item.course._id ?? '').trim() === cidTarget
+      );
+      const inferredLevel =
+        setting?.course?.level != null && String(setting.course.level).trim()
+          ? String(setting.course.level).trim()
+          : '';
+      if (inferredLevel) {
+        setFormState((prev) => {
+          if ((prev.courseInfo.programLevel || '').trim()) return prev;
+          return {
+            ...prev,
+            courseInfo: { ...prev.courseInfo, programLevel: inferredLevel },
+          };
+        });
+      }
+      return;
+    }
+    if (!courseLabel && !branchLabel && !hasCourseId) return;
+
+    const norm = (v?: string | null) =>
+      String(v ?? '')
+        .toLowerCase()
+        .replace(/[\s._\-/&,]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const courseHaystack = norm(`${courseLabel} ${branchLabel}`);
+
+    type Candidate = {
+      setting: CoursePaymentSettings;
+      courseScore: number;
+      branch?: { _id: string; name: string } | null;
+      branchScore: number;
+    };
+
+    let best: Candidate | null = null;
+
+    const considerCandidate = (candidate: Candidate) => {
+      if (!best) {
+        best = candidate;
+        return;
+      }
+      const bestTotal = best.courseScore + best.branchScore;
+      const total = candidate.courseScore + candidate.branchScore;
+      if (total > bestTotal) {
+        best = candidate;
+      } else if (total === bestTotal && candidate.branchScore > best.branchScore) {
+        best = candidate;
+      }
+    };
+
+    if (hasCourseId) {
+      // Caller already locked a courseId — only try to fill the branch / level.
+      const cidTarget = String(formState.courseInfo.courseId ?? '').trim();
+      const setting = catalogForMatch.find(
+        (item) => String(item.course._id ?? '').trim() === cidTarget
+      );
+      if (setting) {
+        considerCandidate({ setting, courseScore: 999, branch: null, branchScore: 0 });
+      }
+    } else {
+      for (const setting of catalogForMatch) {
+        const courseName = norm(setting.course.name);
+        const courseCode = norm(setting.course.code || '');
+        let courseScore = 0;
+        if (!courseName && !courseCode) continue;
+        if (courseName && courseHaystack === courseName) {
+          courseScore = courseName.length * 3 + 5;
+        } else if (courseCode && courseHaystack === courseCode) {
+          courseScore = courseCode.length * 3 + 5;
+        } else if (courseName && courseHaystack.includes(` ${courseName} `)) {
+          courseScore = courseName.length * 2 + 2;
+        } else if (courseName && (courseHaystack.startsWith(`${courseName} `) || courseHaystack.endsWith(` ${courseName}`))) {
+          courseScore = courseName.length * 2 + 1;
+        } else if (courseName && courseHaystack.includes(courseName)) {
+          courseScore = courseName.length;
+        } else if (courseCode && courseHaystack.includes(courseCode)) {
+          courseScore = courseCode.length;
+        } else if (courseName && courseName.includes(courseHaystack) && courseHaystack.length >= 3) {
+          // Lead text is a shorter abbreviation of the managed name.
+          courseScore = courseHaystack.length;
+        }
+        if (courseScore <= 0) continue;
+        considerCandidate({ setting, courseScore, branch: null, branchScore: 0 });
+      }
+    }
+
+    if (!best) return;
+
+    const bestCandidate: Candidate = best;
+
+    // Try to attach a branch under the chosen course.
+    const branchHaystack = norm(`${branchLabel} ${courseLabel}`);
+    let bestBranch: { _id: string; name: string } | null = null;
+    let bestBranchScore = 0;
+    for (const branch of bestCandidate.setting.branches) {
+      const bName = norm(branch.name);
+      const bCode = norm(branch.code || '');
+      let score = 0;
+      if (!bName && !bCode) continue;
+      if (bName && branchHaystack === bName) {
+        score = bName.length * 3 + 5;
+      } else if (bCode && branchHaystack === bCode) {
+        score = bCode.length * 3 + 5;
+      } else if (bName && branchHaystack.includes(` ${bName} `)) {
+        score = bName.length * 2 + 2;
+      } else if (bName && (branchHaystack.startsWith(`${bName} `) || branchHaystack.endsWith(` ${bName}`))) {
+        score = bName.length * 2 + 1;
+      } else if (bName && branchHaystack.includes(bName)) {
+        score = bName.length;
+      } else if (bCode && branchHaystack.includes(bCode)) {
+        score = bCode.length;
+      }
+      if (score > bestBranchScore) {
+        bestBranchScore = score;
+        bestBranch = { _id: String(branch._id), name: branch.name };
+      }
+    }
+    if (bestBranch) {
+      bestCandidate.branch = bestBranch;
+      bestCandidate.branchScore = bestBranchScore;
+    }
+
+    const matchedCourseId = String(bestCandidate.setting.course._id ?? '').trim();
+    const matchedCourseName = bestCandidate.setting.course.name;
+    const inferredLevel =
+      bestCandidate.setting.course?.level != null &&
+      String(bestCandidate.setting.course.level).trim()
+        ? String(bestCandidate.setting.course.level).trim()
+        : '';
+
+    setFormState((prev) => {
+      const next = { ...prev.courseInfo };
+      let changed = false;
+      if (!(next.courseId || '').toString().trim() && matchedCourseId) {
+        next.courseId = matchedCourseId;
+        // Preserve the original lead text in `course` if user already had a
+        // value — keeps the “interested” intent. Otherwise default to the
+        // managed name so the field is never empty.
+        if (!next.course || !norm(next.course)) {
+          next.course = matchedCourseName;
+        }
+        changed = true;
+      }
+      if (!(next.branchId || '').toString().trim() && bestCandidate.branch) {
+        next.branchId = String(bestCandidate.branch._id);
+        const matchedBranchRow = bestCandidate.setting.branches.find(
+          (branch) => String(branch._id ?? '').trim() === String(bestCandidate.branch?._id ?? '').trim()
+        );
+        next.branch = resolveFeePortalBranchLabel(matchedBranchRow, bestCandidate.branch.name);
+        changed = true;
+      }
+      if (!(next.programLevel || '').trim() && inferredLevel) {
+        next.programLevel = inferredLevel;
+        changed = true;
+      }
+      if (!changed) return prev;
+      return { ...prev, courseInfo: next };
+    });
+  }, [
+    courseSettings,
+    selectedCollegeId,
+    formState.courseInfo.course,
+    formState.courseInfo.branch,
+    formState.courseInfo.courseId,
+    formState.courseInfo.branchId,
+    formState.courseInfo.programLevel,
+  ]);
+
+  /** When branchId is set, sync branch text to the Fee Management display name (not roll code). */
+  useEffect(() => {
+    if (courseSettings.length === 0) return;
+    const courseId = String(formState.courseInfo.courseId || '').trim();
+    const branchId = String(formState.courseInfo.branchId || '').trim();
+    if (!courseId || !branchId) return;
+
+    const setting = courseSettings.find(
+      (item) => String(item.course._id ?? '').trim() === courseId
+    );
+    const selected = findBranchInCatalog(setting?.branches, branchId);
+    if (!selected) return;
+
+    const feePortalBranch = resolveFeePortalBranchLabel(selected, formState.courseInfo.branch);
+    if (!feePortalBranch) return;
+
+    const branchLabel = String(formState.courseInfo.branch || '').trim();
+    if (
+      branchLabel.localeCompare(feePortalBranch, undefined, { sensitivity: 'accent' }) === 0
+    ) {
+      return;
+    }
+
+    setFormState((prev) => ({
+      ...prev,
+      courseInfo: {
+        ...prev.courseInfo,
+        branch: feePortalBranch,
+      },
+    }));
+  }, [
+    courseSettings,
+    formState.courseInfo.courseId,
+    formState.courseInfo.branchId,
+    formState.courseInfo.branch,
+  ]);
+
+  useEffect(() => {
+    const pl = (formState.courseInfo.programLevel || '').trim();
+    if (!pl || programLevels.length === 0) return;
+    const cid = formState.courseInfo.courseId;
+    if (!cid) return;
+    const cidTarget = String(cid).trim();
+    if (!cidTarget) return;
+    const entry = courseSettings.find(
+      (item) => String(item.course._id ?? '').trim() === cidTarget
+    );
+    const lv = entry?.course?.level != null ? String(entry.course.level).trim() : '';
+    if (lv && lv !== pl) {
+      setFormState((prev) => ({
+        ...prev,
+        courseInfo: {
+          ...prev.courseInfo,
+          courseId: undefined,
+          course: '',
+          branchId: undefined,
+          branch: '',
+        },
+      }));
+    }
+  }, [formState.courseInfo.programLevel, formState.courseInfo.courseId, courseSettings, programLevels.length]);
+
+  const { data: cashfreeConfigResponse } = useQuery({
+    queryKey: ['payments', 'cashfree-config'],
+    queryFn: async () => {
+      const response = await paymentSettingsAPI.getCashfreeConfig();
+      return response;
+    },
+    enabled: !isPublicEdit,
+  });
+
+  const cashfreeConfig: CashfreeConfigPreview | null = useMemo(() => {
+    const payload = cashfreeConfigResponse?.data;
+    if (!payload) return null;
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      if ('provider' in (payload as any) || 'environment' in (payload as any)) {
+        return payload as CashfreeConfigPreview;
+      }
+      if ('data' in (payload as any) && (payload as any).data) {
+        return (payload as any).data as CashfreeConfigPreview;
+      }
+    }
+    return null;
+  }, [cashfreeConfigResponse]);
+
+  const resolvedPaymentLeadId = useMemo(() => {
+    const fromJoining = joiningRecord?.leadId;
+    if (fromJoining && String(fromJoining).trim()) return String(fromJoining).trim();
+    const fromLead = lead?._id || lead?.id;
+    if (fromLead && String(fromLead).trim()) return String(fromLead).trim();
+    return undefined;
+  }, [joiningRecord?.leadId, lead?._id, lead?.id]);
+
+  const paymentTransactionsQueryKey = useMemo(
+    () => ['payments', 'transactions', joiningRecord?._id, resolvedPaymentLeadId] as const,
+    [joiningRecord?._id, resolvedPaymentLeadId]
+  );
+
+  const {
+    data: transactionsResponse,
+    isLoading: isLoadingTransactions,
+    refetch: refetchTransactions,
+  } = useQuery({
+    queryKey: paymentTransactionsQueryKey,
+    enabled: !isPublicEdit && !!joiningRecord?._id,
+    queryFn: async () => {
+      const response = await paymentAPI.listTransactions({
+        joiningId: joiningRecord?._id,
+        ...(resolvedPaymentLeadId ? { leadId: resolvedPaymentLeadId } : {}),
+      });
+      return response;
+    },
+  });
+
+  const transactions: PaymentTransaction[] = useMemo(
+    () => parsePaymentTransactionsResponse(transactionsResponse),
+    [transactionsResponse]
+  );
+
+  const isStudentPhotoRequired = Boolean(!isPublicEdit && joiningPermData?.requireStudentPhoto);
+  const studentPhotoField = registrationFormFieldsAllFilteredOut ? null : joiningRegistrationDisplayFieldsCoerced.find(isJoiningStudentPortraitUploadField);
+  const studentPhotoKey = studentPhotoField?.fieldName;
+  const hasStudentPhoto = studentPhotoKey ? Boolean(getRegistrationFieldValue(studentPhotoKey)) : false;
+
+  /** Steps 2-4 are open for staff; admission number is generated on Submit Fee Request. */
+  const canProceedFromWizardStep1 =
+    !isPublicEdit &&
+    (!isStudentPhotoRequired || hasStudentPhoto) &&
+    formState.studentInfo.isScholarApplicable !== undefined;
+
+
+  useEffect(() => {
+    if (isPublicEdit) return;
+    if (!canAccessJoiningModule) {
+      router.replace('/superadmin/dashboard');
+    }
+  }, [isPublicEdit, canAccessJoiningModule, router]);
+
+  const selectedCourseSetting = useMemo(() => {
+    if (!formState.courseInfo.courseId) return undefined;
+    // Legacy joining/admission rows may carry the FK id as a MySQL INT (number)
+    // while `courseSettings` from the secondary DB always exposes `_id` as a
+    // string. Strict equality (e.g. `"5" === 5`) would silently fail and the
+    // branches dropdown would stay empty, so compare on the string form.
+    const target = String(formState.courseInfo.courseId).trim();
+    if (!target) return undefined;
+    const setting = courseSettings.find((item) => String(item.course._id ?? '').trim() === target);
+    if (!setting) return undefined;
+
+    // Deduplicate branches by ID (frontend safety check)
+    const uniqueBranchesMap = new Map<string, typeof setting.branches[0]>();
+    setting.branches.forEach((branch) => {
+      const bid = String(branch._id ?? '').trim();
+      if (bid && !uniqueBranchesMap.has(bid)) {
+        uniqueBranchesMap.set(bid, branch);
+      }
+    });
+
+    return {
+      ...setting,
+      branches: Array.from(uniqueBranchesMap.values()),
+    };
+  }, [courseSettings, formState.courseInfo.courseId]);
+
+  const selectedBranchSetting = useMemo(() => {
+    if (!selectedCourseSetting || !formState.courseInfo.branchId) return undefined;
+    const target = String(formState.courseInfo.branchId).trim();
+    if (!target) return undefined;
+    return selectedCourseSetting.payment.branchFees.find(
+      (entry) => String(entry.branch?._id ?? '').trim() === target
+    );
+  }, [selectedCourseSetting, formState.courseInfo.branchId]);
+
+  /** Fee Management feestructures use catalog display name (CSE), not roll code (BCSE). */
+  const feePortalBranchLabel = useMemo(
+    () =>
+      resolveFeePortalBranchFromCatalog(
+        selectedCourseSetting?.branches,
+        formState.courseInfo.branchId,
+        formState.courseInfo.branch
+      ),
+    [
+      selectedCourseSetting?.branches,
+      formState.courseInfo.branchId,
+      formState.courseInfo.branch,
+    ]
+  );
+
+  const configuredFee = useMemo(() => {
+    if (selectedBranchSetting?.amount) return selectedBranchSetting.amount;
+    if (selectedCourseSetting?.payment.defaultFee?.amount) {
+      return selectedCourseSetting.payment.defaultFee.amount;
+    }
+    return null;
+  }, [selectedBranchSetting, selectedCourseSetting]);
+
+  const totalPaid = paymentSummary?.totalPaid ?? 0;
+  const effectiveTotalFee = useMemo(() => {
+    const summaryFee = paymentSummary?.totalFee ?? 0;
+    if (summaryFee > 0) {
+      return summaryFee;
+    }
+    return configuredFee ?? summaryFee;
+  }, [paymentSummary?.totalFee, configuredFee]);
+
+  const outstandingBalance = useMemo(() => {
+    if (!effectiveTotalFee) {
+      if (totalPaid > 0) {
+        return Math.max(0, -totalPaid);
+      }
+      return configuredFee ?? 0;
+    }
+    return Math.max(effectiveTotalFee - totalPaid, 0);
+  }, [effectiveTotalFee, totalPaid, configuredFee]);
+
+  const inferredPaymentStatus = useMemo(() => {
+    if (paymentSummary?.status) return paymentSummary.status;
+    if (totalPaid <= 0) return 'not_started';
+    if (outstandingBalance <= 0.5) return 'paid';
+    return 'partial';
+  }, [paymentSummary?.status, totalPaid, outstandingBalance]);
+
+  const paymentStatusLabel = useMemo(
+    () => inferredPaymentStatus.replace(/_/g, ' '),
+    [inferredPaymentStatus]
+  );
+
+  const paymentStatusBadgeClass = useMemo(() => {
+    switch (inferredPaymentStatus) {
+      case 'paid':
+        return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-200';
+      case 'partial':
+        return 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-200';
+      default:
+        return 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200';
+    }
+  }, [inferredPaymentStatus]);
+
+  const baseFeeTarget = useMemo(() => {
+    return (effectiveTotalFee ?? configuredFee ?? 0) || 0;
+  }, [effectiveTotalFee, configuredFee]);
+
+  const additionalFeePaid = useMemo(() => {
+    if (!transactions || transactions.length === 0) return 0;
+    return transactions
+      .filter((transaction) => transaction.isAdditionalFee && transaction.status === 'success')
+      .reduce((sum, transaction) => sum + (transaction.amount || 0), 0);
+  }, [transactions]);
+
+  const normalizedBaseFeePaid = Math.max(totalPaid - additionalFeePaid, 0);
+  const baseFeePaid =
+    baseFeeTarget > 0 ? Math.min(normalizedBaseFeePaid, baseFeeTarget) : normalizedBaseFeePaid;
+  const totalAmountPaid = Math.max(totalPaid, 0);
+  const isBaseFeeCleared = baseFeeTarget > 0 && outstandingBalance <= 0.5;
+  const shouldShowAdditionalFeeButton =
+    (isBaseFeeCleared || additionalFeePaid > 0 || isAdditionalFeeMode) && canWritePayments;
+  const paymentActionsDisabled =
+    paymentFormState.isProcessing ||
+    (!isAdditionalFeeMode && isBaseFeeCleared) ||
+    !canWritePayments;
+
+  useEffect(() => {
+    if (isAdditionalFeeMode && (!isBaseFeeCleared || !canWritePayments)) {
+      setIsAdditionalFeeMode(false);
+    }
+  }, [isAdditionalFeeMode, isBaseFeeCleared, canWritePayments]);
+
+  const cashfreeMode: 'production' = 'production';
+  const canUseCashfree = Boolean(cashfreeConfig?.isActive && cashfreeConfig?.environment);
+
+  useEffect(() => {
+    if (data?.data?.joining) {
+      const joining: Joining = data.data.joining;
+      setStatus(joining.status);
+      setMeta({
+        updatedAt: joining.updatedAt,
+        submittedAt: joining.submittedAt as string | undefined,
+        approvedAt: joining.approvedAt as string | undefined,
+        admissionNumber: lead?.admissionNumber,
+      });
+      setPaymentSummary(joining.paymentSummary || null);
+
+      // Approved admissions are hydrated from the admission record, not stale joining draft.
+      if (joining.status !== 'approved') {
+        const base = buildInitialState(joining);
+        // Prefill course/quota text from CRM lead when the draft has not mapped managed course yet.
+        if (!String(base.courseInfo.course || '').trim() && lead?.courseInterested) {
+          base.courseInfo.course = String(lead.courseInterested).trim();
+        }
+        if (!String(base.courseInfo.quota || '').trim() && lead?.quota) {
+          const q = String(lead.quota).trim();
+          if (q && q.toLowerCase() !== 'not applicable') {
+            base.courseInfo.quota = q;
+          }
+        }
+        setFormState(mergeLeadIntoJoiningFormState(base, lead as LeadLike));
+        setReference1(resolveJoiningReference1(null, joining, lead as LeadLike));
+        const joiningLeadData = joining.leadData as Record<string, unknown> | undefined;
+        setAdmissionPhase(
+          normalizeAdmissionPhaseValue(
+            joiningLeadData?.admissionPhase ?? joiningLeadData?.admission_phase
+          )
+        );
+      }
+    }
+  }, [data, lead]);
+
+  const {
+    data: admissionData,
+    isLoading: isLoadingAdmission,
+    refetch: refetchAdmission,
+  } = useQuery({
+    queryKey: ['admission', leadId, status],
+    enabled: !isPublicEdit && !!leadId,
+    queryFn: async () => {
+      const candidateJoiningId = joiningRecord?._id || (leadId as string);
+      if (candidateJoiningId && String(candidateJoiningId).length === 36) {
+        try {
+          return await admissionAPI.getByJoiningId(String(candidateJoiningId));
+        } catch {
+          /* fall through to lead lookup — draft joinings may not have an admission yet */
+        }
+      }
+      const candidateLeadId = lead?.id || joiningRecord?.leadId;
+      if (candidateLeadId && String(candidateLeadId).length === 36) {
+        try {
+          return await admissionAPI.getByLeadId(String(candidateLeadId));
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    },
+    staleTime: 10_000,
+  });
+
+  const pendingFeeRequestQuery = useQuery({
+    queryKey: ['fee-request-pending', joiningRecord?._id],
+    queryFn: async () => {
+      if (!joiningRecord?._id) return null;
+      const res = await feeRequestAPI.getPendingForJoining(joiningRecord._id);
+      return (res?.data ?? null) as import('@/types').FeeRequest | null;
+    },
+    enabled: Boolean(joiningRecord?._id) && !isPublicEdit && (useWizard ? applicationWizardStep === 4 : showAdminPostAdmissionStep4),
+    staleTime: 15_000,
+  });
+  const pendingFeeRequest = pendingFeeRequestQuery.data;
+
+  useEffect(() => {
+    const rawJoiningType = (joiningRecord?.registrationFormData as Record<string, unknown>)?.transport_details as Record<string, unknown> | undefined;
+    const rawAdmissionType = (admissionRecord?.registrationFormData as Record<string, unknown>)?.transport_details as Record<string, unknown> | undefined;
+    const accommodationTypeOnly = rawJoiningType?.accommodationType
+      ? { accommodationType: rawJoiningType.accommodationType as any, academicYear: rawJoiningType.academicYear as any }
+      : rawAdmissionType?.accommodationType
+        ? { accommodationType: rawAdmissionType.accommodationType as any, academicYear: rawAdmissionType.academicYear as any }
+        : undefined;
+
+    const merged = mergeJoiningTransportDetails(
+      pendingFeeRequest?.transportDetails,
+      accommodationTypeOnly
+    );
+    setTransportDetails((prev) => {
+      const prevScore = joiningTransportDetailsCompletenessScore(prev);
+      const mergedScore = joiningTransportDetailsCompletenessScore(merged);
+      if (prevScore > mergedScore) return prev;
+      if (prevScore === mergedScore && isAccommodationChoiceLocked(prev)) return prev;
+      return merged;
+    });
+  }, [
+    pendingFeeRequest?.transportDetails,
+    pendingFeeRequest?.id,
+    joiningRecord?._id,
+    joiningRecord?.updatedAt,
+    admissionRecord?._id,
+    admissionRecord?.updatedAt,
+  ]);
+
+  const step3AccommodationReadOnly =
+    !canWriteJoining ||
+    (Boolean(pendingFeeRequest) &&
+      isAccommodationChoiceLocked(
+        mergeJoiningTransportDetails(pendingFeeRequest?.transportDetails, transportDetails)
+      ));
+
+  const [hasExistingTransportRequest, setHasExistingTransportRequest] = useState(false);
+  const [hasExistingHostelRequest, setHasExistingHostelRequest] = useState(false);
+  const [step3AccommodationUiLocked, setStep3AccommodationUiLocked] = useState(false);
+
+  useEffect(() => {
+    if (!isAccommodationChoiceLocked(transportDetails)) {
+      setStep3AccommodationUiLocked(false);
+    }
+  }, [transportDetails]);
+
+  const step3SelectionUiLocked = step3AccommodationReadOnly || step3AccommodationUiLocked;
+
+  const accommodationTransportDetails = useMemo(() => {
+    if (hasExistingTransportRequest && !hasExistingHostelRequest) {
+      return { ...transportDetails, accommodationType: 'bus' as const };
+    }
+    if (hasExistingHostelRequest && !hasExistingTransportRequest) {
+      return { ...transportDetails, accommodationType: 'hostel' as const };
+    }
+    return transportDetails;
+  }, [transportDetails, hasExistingTransportRequest, hasExistingHostelRequest]);
+
+  const refreshAccommodationQueries = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['student-transport-request'] }),
+      queryClient.invalidateQueries({ queryKey: ['hostel-student-details'] }),
+      queryClient.invalidateQueries({ queryKey: ['next-transport-app-no'] }),
+    ]);
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: ['student-transport-request'], type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['hostel-student-details'], type: 'active' }),
+    ]);
+  }, [queryClient]);
+
+  const applyAdmissionRecordToWorkspace = useCallback(
+    (record: Admission) => {
+      setAdmissionRecord(record);
+      setAdmissionRemarks(record.remarks || '');
+      setMeta((prev) => ({
+        ...prev,
+        admissionNumber: record.admissionNumber || prev.admissionNumber,
+        updatedAt: record.updatedAt || prev.updatedAt,
+      }));
+      setPaymentSummary(record.paymentSummary || null);
+      const base = buildInitialState(record as unknown as Joining);
+      setFormState(mergeLeadIntoJoiningFormState(base, lead as LeadLike));
+      setHasAppliedAdmissionSnapshot(true);
+
+      if (record.registrationFormData && typeof record.registrationFormData === 'object') {
+        setRegistrationExtras(
+          stripJoiningRedundantRegistrationExtras({
+            ...(record.registrationFormData as Record<string, unknown>),
+          })
+        );
+      }
+
+      const leadData = record.leadData as Record<string, unknown> | undefined;
+      const sfd =
+        record.studentFeeDetails ??
+        (leadData?._joiningStudentFeeDetails as JoiningStudentFeeDetails | undefined);
+      const batch =
+        sfd && typeof sfd.batch === 'string' && sfd.batch.trim() ? sfd.batch.trim() : undefined;
+      // Approved builder uses overall_concessions only — do not hydrate lines from lead_data.
+      setStudentFeeDetails((prev) => ({ ...(batch ? { batch } : {}), lines: prev.lines }));
+      setBuilderAddedHeadIds([]);
+      setReference1(resolveJoiningReference1(record, joiningRecord ?? undefined, lead as LeadLike));
+      setAdmissionPhase(
+        normalizeAdmissionPhaseValue(
+          record.admissionPhase ?? leadData?.admissionPhase ?? leadData?.admission_phase
+        )
+      );
+    },
+    [lead, joiningRecord]
+  );
+
+  useEffect(() => {
+    if (status === 'approved') {
+      if (admissionData?.data?.admission) {
+        const record = admissionData.data.admission as Admission;
+        if (!hasAppliedAdmissionSnapshot) {
+          applyAdmissionRecordToWorkspace(record);
+        }
+      }
+    } else {
+      setAdmissionRecord(null);
+      setPaymentSummary(joiningRecord?.paymentSummary || null);
+      if (hasAppliedAdmissionSnapshot) {
+        setHasAppliedAdmissionSnapshot(false);
+      }
+    }
+  }, [
+    status,
+    admissionData,
+    hasAppliedAdmissionSnapshot,
+    joiningRecord,
+    applyAdmissionRecordToWorkspace,
+  ]);
+
+  const handleCourseFieldChange = (field: 'course' | 'branch' | 'quota', value: string) => {
+    setFormState((prev) => ({
+      ...prev,
+      courseInfo: {
+        ...prev.courseInfo,
+        [field]: value,
+        ...(field === 'course' ? { courseId: undefined } : {}),
+        ...(field === 'branch' ? { branchId: undefined } : {}),
+      },
+    }));
+    if (field === 'quota') {
+      const patches = computeScholarshipRegistrationPatches(value, sortedRegistrationFields);
+      if (Object.keys(patches).length > 0) {
+        setRegistrationExtras((prev) => ({ ...prev, ...patches }));
+      }
+    }
+  };
+
+  const handleProgramLevelChange = (value: string) => {
+    const next = value.trim();
+    setFormState((prev) => ({
+      ...prev,
+      courseInfo: {
+        ...prev.courseInfo,
+        programLevel: next,
+        courseId: undefined,
+        course: '',
+        branchId: undefined,
+        branch: '',
+      },
+    }));
+  };
+
+  const handleManagedCourseSelect = (courseId: string) => {
+    if (!courseId) {
+      setFormState((prev) => ({
+        ...prev,
+        courseInfo: {
+          ...prev.courseInfo,
+          courseId: undefined,
+          course: '', // Clear course name when ID is cleared
+          branchId: undefined,
+          branch: '', // Clear branch when course is cleared
+        },
+      }));
+      return;
+    }
+
+    const cidTarget = String(courseId).trim();
+    // Look up the picked course in the full catalog (not just the level-filtered
+    // view) so we can also auto-fill the program level when the course's
+    // `level` is set in the secondary DB. This is what kicks off the
+    // certificate-guidance API automatically — without it, staff have to pick
+    // the level separately and the checklist sits empty.
+    const course =
+      courseSettings.find((item) => String(item.course._id ?? '').trim() === cidTarget) ||
+      filteredCourseSettings.find((item) => String(item.course._id ?? '').trim() === cidTarget);
+    const inferredLevel =
+      course?.course?.level != null && String(course.course.level).trim()
+        ? String(course.course.level).trim()
+        : '';
+    const rowCollegeId =
+      course?.course?.collegeId !== undefined && course?.course?.collegeId !== null
+        ? String(course.course.collegeId).trim()
+        : '';
+
+    setFormState((prev) => ({
+      ...prev,
+      courseInfo: {
+        ...prev.courseInfo,
+        courseId: cidTarget,
+        course: course?.course?.name || '',
+        branchId: undefined,
+        branch: '',
+        programLevel:
+          (prev.courseInfo.programLevel || '').trim() || inferredLevel || prev.courseInfo.programLevel,
+      },
+    }));
+
+    if (rowCollegeId) {
+      setRegistrationExtras((prev) => ({
+        ...prev,
+        ...collegeRegistrationPatchFromId(rowCollegeId, colleges),
+      }));
+    }
+  };
+
+  const handleManagedBranchSelect = (branchId: string) => {
+    if (!branchId) {
+      setFormState((prev) => ({
+        ...prev,
+        courseInfo: {
+          ...prev.courseInfo,
+          branchId: undefined,
+          branch: '', // Clear branch name when ID is cleared
+        },
+      }));
+      return;
+    }
+
+    const bidTarget = String(branchId).trim();
+    const branch = selectedCourseSetting?.branches.find(
+      (item) => String(item._id ?? '').trim() === bidTarget
+    );
+    setFormState((prev) => ({
+      ...prev,
+      courseInfo: {
+        ...prev.courseInfo,
+        branchId: bidTarget,
+        branch: resolveFeePortalBranchLabel(branch, branch?.name || branch?.code || ''),
+      },
+    }));
+  };
+
+  const loadCashfreeSDK = useCallback(() => {
+    return new Promise<any>((resolve, reject) => {
+      if (typeof window === 'undefined') {
+        reject(new Error('Cashfree SDK is only available in the browser'));
+        return;
+      }
+
+      const existing = (window as any).Cashfree;
+      if (existing) {
+        try {
+          const instance = existing({ mode: 'production' });
+          resolve(instance);
+          return;
+        } catch (error) {
+          reject(error);
+          return;
+        }
+      }
+
+      const scriptId = 'cashfree-sdk';
+      const existingScript = document.getElementById(scriptId);
+      const handleReady = () => {
+        if ((window as any).Cashfree) {
+          try {
+            const instance = (window as any).Cashfree({ mode: 'production' });
+            resolve(instance);
+          } catch (error) {
+            reject(error);
+          }
+        } else {
+          reject(new Error('Cashfree SDK failed to initialize'));
+        }
+      };
+
+      if (existingScript) {
+        const maxWaitMs = 6000;
+        const start = Date.now();
+        const interval = window.setInterval(() => {
+          if ((window as any).Cashfree) {
+            window.clearInterval(interval);
+            handleReady();
+          } else if (Date.now() - start > maxWaitMs) {
+            window.clearInterval(interval);
+            reject(new Error('Cashfree SDK initialization timed out'));
+          }
+        }, 150);
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.id = scriptId;
+      script.async = true;
+      script.src = 'https://sdk.cashfree.com/js/ui/2.0/cashfree.prod.js';
+      script.onload = handleReady;
+      script.onerror = () => reject(new Error('Failed to load Cashfree SDK'));
+      document.body.appendChild(script);
+    });
+  }, []);
+
+  const resetPaymentForm = () => {
+    setPaymentFormState({
+      amount: '',
+      referenceId: '',
+      isProcessing: false,
+    });
+    setSelectedFeeHead(null);
+  };
+
+  const openPaymentModal = (mode: 'cash' | 'online') => {
+    if (!canWritePayments) {
+      showToast.error('You have read-only access to payments');
+      return;
+    }
+    const defaultAmountValue =
+      isAdditionalFeeMode
+        ? null
+        : outstandingBalance && outstandingBalance > 0
+          ? outstandingBalance
+          : configuredFee ?? effectiveTotalFee ?? 0;
+    const normalizedValue =
+      defaultAmountValue && defaultAmountValue > 0
+        ? Number(defaultAmountValue.toFixed(2))
+        : 0;
+    setPaymentFormState({
+      amount:
+        isAdditionalFeeMode || normalizedValue <= 0 ? '' : String(normalizedValue),
+      referenceId: '',
+      isProcessing: false,
+    });
+    setShouldPromptPayment(false);
+    setOpenPaymentMode(mode);
+  };
+
+  const closePaymentModal = () => {
+    if (paymentFormState.isProcessing) return;
+    setOpenPaymentMode(null);
+  };
+
+  /**
+   * Triggered when the user clicks Cash or Cashfree on a row inside the Fee Structure section.
+   * Mirrors the existing "Payments & Transactions" section behavior:
+   * - Stores the fee-head identity so subsequent cash/cashfree submits tag the transaction.
+   * - Prefills the amount with the row's amount (clamped to the outstanding balance when one
+   *   exists and is smaller, so users never over-collect on the scheduled fee by accident).
+   * - Opens the same modal the existing section uses, in the mode the user picked.
+   */
+  const handleSelectFeeHead = (selection: FeeHeadSelection) => {
+    if (!canWritePayments) {
+      showToast.error('You have read-only access to payments');
+      return;
+    }
+    // Online lane requires Cashfree to be configured + active, same gate as the main section.
+    if (selection.mode === 'online' && !canUseCashfree) {
+      showToast.error(
+        'Cashfree configuration is not active. Update Payment Settings before collecting online.'
+      );
+      return;
+    }
+    setSelectedFeeHead(selection);
+    // Selecting a specific fee head implies a targeted payment, not a generic "additional fee".
+    setIsAdditionalFeeMode(false);
+    const rowAmount = Number(selection.amount) || 0;
+    const cappedAmount =
+      outstandingBalance && outstandingBalance > 0
+        ? Math.min(rowAmount, outstandingBalance)
+        : rowAmount;
+    setPaymentFormState({
+      amount: cappedAmount > 0 ? String(Number(cappedAmount.toFixed(2))) : '',
+      referenceId: '',
+      isProcessing: false,
+    });
+    setShouldPromptPayment(false);
+    setOpenPaymentMode(selection.mode);
+  };
+
+  const handleCashPaymentSubmit = async () => {
+    if (!canWritePayments) {
+      showToast.error('You have read-only access to payments');
+      return;
+    }
+    if (!leadId) return;
+    const amountValue = Number(paymentFormState.amount);
+    if (!amountValue || Number.isNaN(amountValue) || amountValue <= 0) {
+      showToast.error('Enter a valid payment amount');
+      return;
+    }
+
+    setPaymentFormState((prev) => ({ ...prev, isProcessing: true }));
+    try {
+      const recordResponse = await paymentAPI.recordCashPayment({
+        ...(resolvedPaymentLeadId ? { leadId: resolvedPaymentLeadId } : lead?._id ? { leadId: lead._id } : {}),
+        joiningId: joiningRecord?._id,
+        admissionId: admissionRecord?._id,
+        courseId: formState.courseInfo.courseId,
+        branchId: formState.courseInfo.branchId,
+        amount: amountValue,
+        currency: 'INR',
+        isAdditionalFee: isAdditionalFeeMode || undefined,
+        // Tag transaction with the selected fee head (Fee Management DB) when present.
+        ...(paymentFormState.referenceId.trim()
+          ? { referenceId: paymentFormState.referenceId.trim() }
+          : {}),
+        ...(selectedFeeHead && {
+          feeHead: selectedFeeHead.feeHeadId,
+          feeHeadName: selectedFeeHead.feeHeadName,
+          feeHeadCode: selectedFeeHead.feeHeadCode,
+          feeStructureBatch: selectedFeeHead.batch,
+          feeStructureYear: selectedFeeHead.studentYear,
+        }),
+      });
+
+      const recordedTransaction = (recordResponse as { data?: PaymentTransaction } | null)?.data;
+      if (recordedTransaction?._id) {
+        queryClient.setQueryData(paymentTransactionsQueryKey, (prev: unknown) => {
+          const existing = parsePaymentTransactionsResponse(prev);
+          const withoutDup = existing.filter((tx) => tx._id !== recordedTransaction._id);
+          return { data: [recordedTransaction, ...withoutDup] };
+        });
+      }
+
+      showToast.success(
+        selectedFeeHead
+          ? `Cash payment recorded for ${selectedFeeHead.feeHeadName || 'selected fee head'}`
+          : 'Cash payment recorded'
+      );
+      setOpenPaymentMode(null);
+      resetPaymentForm();
+      setShouldPromptPayment(false);
+      setIsAdditionalFeeMode(false);
+
+      const refetchJoiningResult = await refetch();
+      const refreshedJoining = refetchJoiningResult.data?.data?.joining as Joining | undefined;
+      if (refreshedJoining?.paymentSummary) {
+        setPaymentSummary(refreshedJoining.paymentSummary);
+      }
+
+      await Promise.all([
+        refetchTransactions(),
+        queryClient.invalidateQueries({ queryKey: paymentTransactionsQueryKey }),
+        status === 'approved' ? refetchAdmission() : Promise.resolve(),
+      ]);
+    } catch (error: any) {
+      console.error('Error recording cash payment:', error);
+      showToast.error(error?.response?.data?.message || 'Failed to record cash payment');
+    } finally {
+      setPaymentFormState((prev) => ({ ...prev, isProcessing: false }));
+    }
+  };
+
+  const handleCashfreePayment = async () => {
+    if (!canWritePayments) {
+      showToast.error('You have read-only access to payments');
+      return;
+    }
+    if (!leadId) return;
+    if (!canUseCashfree) {
+      showToast.error('Cashfree configuration is not active. Please update settings.');
+      return;
+    }
+
+    const amountValue = Number(paymentFormState.amount);
+    if (!amountValue || Number.isNaN(amountValue) || amountValue <= 0) {
+      showToast.error('Enter a valid payment amount');
+      return;
+    }
+
+    setPaymentFormState((prev) => ({ ...prev, isProcessing: true }));
+    let orderId: string | null = null;
+    try {
+      const orderResponse = await paymentAPI.createCashfreeOrder({
+        ...(lead?._id && { leadId: lead._id }),
+        joiningId: joiningRecord?._id,
+        admissionId: admissionRecord?._id,
+        courseId: formState.courseInfo.courseId,
+        branchId: formState.courseInfo.branchId,
+        amount: amountValue,
+        currency: 'INR',
+        customer: {
+          customerId: lead?._id || joiningRecord?._id || (leadId as string),
+          name: formState.studentInfo.name || lead?.name || 'Prospective Student',
+          email: lead?.email || 'student@example.com',
+          phone: formState.studentInfo.phone || lead?.phone || '9999999999',
+        },
+        isAdditionalFee: isAdditionalFeeMode || undefined,
+        // Tag the Cashfree transaction with the selected fee head so reconciliation /
+        // payment history shows what was paid for. Both order rows and the eventual
+        // verification land on the same transaction row (meta is set at insert time).
+        ...(selectedFeeHead && {
+          feeHead: selectedFeeHead.feeHeadId,
+          feeHeadName: selectedFeeHead.feeHeadName,
+          feeHeadCode: selectedFeeHead.feeHeadCode,
+          feeStructureBatch: selectedFeeHead.batch,
+          feeStructureYear: selectedFeeHead.studentYear,
+          notes: {
+            feeHead: selectedFeeHead.feeHeadId,
+            feeHeadName: selectedFeeHead.feeHeadName,
+            feeHeadCode: selectedFeeHead.feeHeadCode,
+          },
+        }),
+      });
+
+      const orderData = orderResponse?.data;
+      if (!orderData?.orderId || !orderData?.paymentSessionId) {
+        throw new Error('Missing payment session details');
+      }
+      orderId = orderData.orderId;
+
+      const cashfree = await loadCashfreeSDK();
+      try {
+        await cashfree.checkout({
+          paymentSessionId: orderData.paymentSessionId,
+          redirectTarget: '_modal',
+        });
+      } catch (sdkError) {
+        console.warn('Cashfree checkout error:', sdkError);
+      }
+
+      if (!orderId) {
+        throw new Error('Missing Cashfree order identifier');
+      }
+
+      const verificationResponse = await paymentAPI.verifyCashfreePayment({ orderId });
+      const verification = verificationResponse?.data || {};
+      const statusResult = (verification.status || '').toLowerCase();
+
+      if (statusResult === 'success' || statusResult === 'paid') {
+        showToast.success('Online payment successful');
+        setOpenPaymentMode(null);
+        resetPaymentForm();
+        setShouldPromptPayment(false);
+        setIsAdditionalFeeMode(false);
+        await Promise.all([
+          refetch(),
+          refetchTransactions(),
+          status === 'approved' ? refetchAdmission() : Promise.resolve(),
+        ]);
+      } else if (statusResult === 'failed') {
+        showToast.error('Payment failed. Please try again or choose a different mode.');
+      } else {
+        showToast.info('Payment pending. You can verify the status shortly.');
+      }
+    } catch (error: any) {
+      console.error('Error processing online payment:', error);
+      showToast.error(
+        error?.response?.data?.message || error?.message || 'Failed to initiate online payment'
+      );
+      if (orderId) {
+        try {
+          await paymentAPI.verifyCashfreePayment({ orderId });
+        } catch (verifyError) {
+          console.warn('Unable to verify payment status after failure:', verifyError);
+        }
+      }
+    } finally {
+      setPaymentFormState((prev) => ({ ...prev, isProcessing: false }));
+    }
+  };
+
+  const handleStudentInfoChange = (field: keyof JoiningFormState['studentInfo'], value: any) => {
+    setFormState((prev) => ({
+      ...prev,
+      studentInfo: {
+        ...prev.studentInfo,
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleParentChange = (
+    role: 'father' | 'mother',
+    field: keyof JoiningFormState['parents']['father'],
+    value: string
+  ) => {
+    setFormState((prev) => ({
+      ...prev,
+      parents: {
+        ...prev.parents,
+        [role]: {
+          ...prev.parents[role],
+          [field]: value,
+        },
+      },
+    }));
+  };
+
+  const handleReservationCategoryChange = (categoryId: string) => {
+    const category = casteCategories.find((c) => String(c.id) === String(categoryId));
+    setFormState((prev) => ({
+      ...prev,
+      reservation: {
+        ...prev.reservation,
+        categoryId: categoryId || undefined,
+        // Caste is optional — do not auto-select when category changes.
+        casteId: undefined,
+        general: category?.name || '',
+        isEws: /ews/i.test(String(category?.name || '')) ? true : prev.reservation.isEws,
+      },
+    }));
+  };
+
+  const handleReservationCasteChange = (casteIdOrName: string) => {
+    const trimmed = String(casteIdOrName || '').trim();
+    const category = casteCategories.find(
+      (c) => String(c.id) === String(selectedCasteCategoryId || formState.reservation.categoryId || '')
+    );
+    const categoryName = category?.name || '';
+    if (!trimmed) {
+      setFormState((prev) => ({
+        ...prev,
+        reservation: {
+          ...prev.reservation,
+          casteId: undefined,
+          // students.caste must stay the category name.
+          general: categoryName || prev.reservation.general || '',
+        },
+      }));
+      return;
+    }
+    const byId = castesForSelectedCategory.find((c) => String(c.id) === String(trimmed));
+    const byName = castesForSelectedCategory.find(
+      (c) => c.name.toLowerCase() === trimmed.toLowerCase()
+    );
+    const caste = byId || byName || resolveCasteForValue(trimmed, allCastes, selectedCasteCategoryId);
+    const casteName = caste?.name || trimmed;
+    // Never store a category-mirror caste (BC-A → BC-A) as caste_id.
+    const isCategoryMirror =
+      Boolean(categoryName) && normalizeCasteKey(casteName) === normalizeCasteKey(categoryName);
+    setFormState((prev) => ({
+      ...prev,
+      reservation: {
+        ...prev.reservation,
+        categoryId: caste?.categoryId || prev.reservation.categoryId || selectedCasteCategoryId || undefined,
+        casteId: isCategoryMirror ? undefined : caste?.id,
+        // Keep reservation.general as category name for students.caste sync.
+        general: categoryName || prev.reservation.general || '',
+        isEws:
+          /ews/i.test(categoryName) || /ews/i.test(casteName) ? true : prev.reservation.isEws,
+      },
+    }));
+  };
+
+  const handleReservationGeneralChange = (value: JoiningReservation['general']) => {
+    handleReservationCasteChange(value);
+  };
+
+  const addOtherReservation = () => {
+    if (!otherReservationInput.trim()) return;
+    setFormState((prev) => ({
+      ...prev,
+      reservation: {
+        ...prev.reservation,
+        other: Array.from(
+          new Set([...(prev.reservation.other || []), otherReservationInput.trim()])
+        ),
+      },
+    }));
+    setOtherReservationInput('');
+  };
+
+  const removeOtherReservation = (value: string) => {
+    setFormState((prev) => ({
+      ...prev,
+      reservation: {
+        ...prev.reservation,
+        other: (prev.reservation.other || []).filter((item) => item !== value),
+      },
+    }));
+  };
+
+  const handleCommunicationAddressChange = (
+    field: keyof JoiningFormState['address']['communication'],
+    value: string
+  ) => {
+    setFormState((prev) => {
+      const next = { ...prev.address.communication, [field]: value };
+      if (field === 'state') {
+        delete next.district;
+        delete next.mandal;
+      } else if (field === 'district') {
+        delete next.mandal;
+      }
+      return {
+        ...prev,
+        address: {
+          ...prev.address,
+          communication: next,
+        },
+      };
+    });
+  };
+
+  const updateRelative = (
+    index: number,
+    field: keyof JoiningRelativeAddress,
+    value: string
+  ) => {
+    setFormState((prev) => {
+      const nextRelatives = [...prev.address.relatives];
+      const nextEntry = { ...nextRelatives[index], [field]: value };
+      if (field === 'state') {
+        delete nextEntry.district;
+        delete nextEntry.mandal;
+      } else if (field === 'district') {
+        delete nextEntry.mandal;
+      }
+      nextRelatives[index] = nextEntry;
+      return {
+        ...prev,
+        address: {
+          ...prev.address,
+          relatives: nextRelatives,
+        },
+      };
+    });
+  };
+
+  const toggleRelativeGuardian = (index: number, checked: boolean) => {
+    setFormState((prev) => {
+      const nextRelatives = [...prev.address.relatives];
+      nextRelatives[index] = { ...nextRelatives[index], isGuardian: checked };
+      return {
+        ...prev,
+        address: {
+          ...prev.address,
+          relatives: nextRelatives,
+        },
+      };
+    });
+  };
+
+  const addRelative = () => {
+    setFormState((prev) => ({
+      ...prev,
+      address: {
+        ...prev.address,
+        relatives: [
+          ...prev.address.relatives,
+          {
+            name: '',
+            relationship: '',
+            phone: '',
+            isGuardian: false,
+            state: '',
+            doorOrStreet: '',
+            landmark: '',
+            villageOrCity: '',
+            mandal: '',
+            district: '',
+            pinCode: '',
+          },
+        ],
+      },
+    }));
+  };
+
+  const removeRelative = (index: number) => {
+    setFormState((prev) => {
+      const copy = [...prev.address.relatives];
+      copy.splice(index, 1);
+      return {
+        ...prev,
+        address: {
+          ...prev.address,
+          relatives: copy,
+        },
+      };
+    });
+  };
+
+  const toggleQualification = (field: 'ssc' | 'interOrDiploma' | 'ug') => {
+    setFormState((prev) => ({
+      ...prev,
+      qualifications: {
+        ...prev.qualifications,
+        [field]: !prev.qualifications[field],
+      },
+    }));
+  };
+
+  const toggleMediumSelection = (value: 'english' | 'telugu' | 'other') => {
+    setFormState((prev) => {
+      const current = Array.isArray(prev.qualifications.mediums)
+        ? prev.qualifications.mediums
+        : [];
+      const exists = current.includes(value);
+      const next = exists
+        ? current.filter((item) => item !== value)
+        : Array.from(new Set([...current, value]));
+
+      return {
+        ...prev,
+        qualifications: {
+          ...prev.qualifications,
+          mediums: next,
+          otherMediumLabel: next.includes('other') ? prev.qualifications.otherMediumLabel : '',
+        },
+      };
+    });
+  };
+
+  const handleMediumOtherLabelChange = (value: string) => {
+    setFormState((prev) => ({
+      ...prev,
+      qualifications: {
+        ...prev.qualifications,
+        otherMediumLabel: value,
+      },
+    }));
+  };
+
+  const setMeritQualification = (value: boolean | null) => {
+    setFormState((prev) => ({
+      ...prev,
+      qualifications: {
+        ...prev.qualifications,
+        merit: value,
+      },
+    }));
+  };
+
+  const setAcQualification = (value: boolean | null) => {
+    setFormState((prev) => ({
+      ...prev,
+      qualifications: {
+        ...prev.qualifications,
+        ac: value,
+      },
+    }));
+  };
+
+  const updateEducationHistory = (
+    index: number,
+    field: keyof JoiningEducationHistory,
+    value: string
+  ) => {
+    setFormState((prev) => {
+      const copy = [...prev.educationHistory];
+      copy[index] = {
+        ...copy[index],
+        [field]: value,
+      };
+      return {
+        ...prev,
+        educationHistory: copy,
+      };
+    });
+  };
+
+  const handleYearOfPassingChange = (index: number, value: string) => {
+    updateEducationHistory(index, 'yearOfPassing', sanitizeYearValue(value));
+  };
+
+  const handleTotalMarksChange = (index: number, value: string) => {
+    setFormState((prev) => {
+      const historyCopy = [...prev.educationHistory];
+      const previousValue = historyCopy[index]?.totalMarksOrGrade || '';
+      const sanitized = sanitizeTotalMarksInput(value, previousValue);
+      historyCopy[index] = {
+        ...historyCopy[index],
+        totalMarksOrGrade: sanitized,
+      };
+      return {
+        ...prev,
+        educationHistory: historyCopy,
+      };
+    });
+  };
+
+  const addEducationHistory = () => {
+    setFormState((prev) => ({
+      ...prev,
+      educationHistory: [
+        ...prev.educationHistory,
+        {
+          level: 'ssc',
+          courseOrBranch: '',
+          yearOfPassing: '',
+          institutionName: '',
+          institutionAddress: '',
+          hallTicketNumber: '',
+          totalMarksOrGrade: '',
+          cetRank: '',
+          otherLevelLabel: '',
+        },
+      ],
+    }));
+  };
+
+  const removeEducationHistory = (index: number) => {
+    setFormState((prev) => {
+      const copy = [...prev.educationHistory];
+      copy.splice(index, 1);
+      return {
+        ...prev,
+        educationHistory: copy,
+      };
+    });
+  };
+
+  const updateSibling = (index: number, field: keyof JoiningSibling, value: string) => {
+    setFormState((prev) => {
+      const copy = [...prev.siblings];
+      copy[index] = {
+        ...copy[index],
+        [field]: value,
+      };
+      return {
+        ...prev,
+        siblings: copy,
+      };
+    });
+  };
+
+  const addSibling = () => {
+    setFormState((prev) => ({
+      ...prev,
+      siblings: [
+        ...prev.siblings,
+        { name: '', relation: '', studyingStandard: '', institutionName: '' },
+      ],
+    }));
+  };
+
+  const handleReservationEwsChange = (value: boolean) => {
+    setFormState((prev) => ({
+      ...prev,
+      reservation: {
+        ...prev.reservation,
+        isEws: value,
+      },
+    }));
+  };
+
+  const removeSibling = (index: number) => {
+    setFormState((prev) => {
+      const copy = [...prev.siblings];
+      copy.splice(index, 1);
+      return {
+        ...prev,
+        siblings: copy,
+      };
+    });
+  };
+
+  const updateDocumentStatus = (key: keyof JoiningDocuments, value: JoiningDocumentStatus) => {
+    setFormState((prev) => ({
+      ...prev,
+      documents: {
+        ...prev.documents,
+        [key]: value,
+      },
+    }));
+  };
+
+  const updateCertificateChecklistStatus = (
+    itemId: string,
+    value: JoiningDocumentStatus,
+    hasOptions: boolean
+  ) => {
+    const id = String(itemId || '').trim();
+    if (!id) return;
+    setRegistrationExtras((prev) => {
+      const raw = prev.certificate_checklist;
+      const cur =
+        raw && typeof raw === 'object' && !Array.isArray(raw)
+          ? { ...(raw as Record<string, CertificateChecklistStoredValue>) }
+          : {};
+      const prevEntry = parseCertificateChecklistEntry(cur[id]);
+      cur[id] = buildCertificateChecklistStoredValue(hasOptions, value, prevEntry.option);
+      return { ...prev, certificate_checklist: cur };
+    });
+  };
+
+  const updateCertificateChecklistOption = (itemId: string, encoded: string) => {
+    const id = String(itemId || '').trim();
+    if (!id) return;
+    setRegistrationExtras((prev) => {
+      const raw = prev.certificate_checklist;
+      const cur =
+        raw && typeof raw === 'object' && !Array.isArray(raw)
+          ? { ...(raw as Record<string, CertificateChecklistStoredValue>) }
+          : {};
+      const prevEntry = parseCertificateChecklistEntry(cur[id]);
+      cur[id] = { status: prevEntry.status, option: encoded.trim() || undefined };
+      return { ...prev, certificate_checklist: cur };
+    });
+  };
+
+  const programTotalYears = useMemo(() => {
+    const totalYears = resolveTotalYearsFromCourseSettings(
+      courseSettings,
+      formState.courseInfo.courseId,
+      formState.courseInfo.branchId
+    );
+    return totalYears && totalYears > 0 ? totalYears : 4;
+  }, [courseSettings, formState.courseInfo.courseId, formState.courseInfo.branchId]);
+
+  const stepOneAcademicYear = useMemo(
+    () =>
+      resolveJoiningStepOneAcademicYear({
+        registrationExtras,
+        gate: joiningRegistrationCourseContext,
+        leadAcademicYear: (lead as LeadLike | undefined)?.academicYear,
+      }),
+    [registrationExtras, joiningRegistrationCourseContext, lead]
+  );
+
+  const studentYearOfStudy = useMemo(
+    () =>
+      resolveJoiningStudentYearOfStudy({
+        registrationExtras,
+        admissionNumber: admissionNumberDisplay,
+        course: formState.courseInfo.course,
+        quota: formState.courseInfo.quota,
+      }),
+    [
+      registrationExtras,
+      admissionNumberDisplay,
+      formState.courseInfo.course,
+      formState.courseInfo.quota,
+    ]
+  );
+
+  const feeYearColumns = useMemo(
+    () =>
+      resolveJoiningFeeYearColumns({
+        programTotalYears,
+        studentYearOfStudy,
+      }),
+    [programTotalYears, studentYearOfStudy]
+  );
+
+  // Step 4 / Collect Payment: laterals never stay on Year 1.
+  useEffect(() => {
+    setBuilderPaymentYear((prev) => {
+      const total = programTotalYears || 1;
+      const minYear = Math.max(1, Math.min(studentYearOfStudy, total));
+      if (prev < minYear) return minYear;
+      if (prev > total) return total;
+      return prev;
+    });
+  }, [studentYearOfStudy, programTotalYears]);
+
+  const joiningRegistrationPatch = useMemo(
+    () => ({
+      transport_details: transportDetails?.accommodationType
+        ? {
+            accommodationType: transportDetails.accommodationType,
+            ...(transportDetails.academicYear ? { academicYear: transportDetails.academicYear } : {}),
+          }
+        : {},
+      program_total_years: programTotalYears,
+      ...(stepOneAcademicYear
+        ? { academic_year: stepOneAcademicYear, academicYear: stepOneAcademicYear }
+        : {}),
+    }),
+    [transportDetails, programTotalYears, stepOneAcademicYear]
+  );
+
+  const portraitRegistrationPatch = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(registrationExtras).filter(([k, v]) => {
+          const n = k.toLowerCase();
+          return (
+            (n.includes('photo') || n.includes('portrait') || n.includes('picture')) &&
+            typeof v === 'string' &&
+            v.trim() !== ''
+          );
+        })
+      ),
+    [registrationExtras]
+  );
+
+  const feeConfigurationBatch = useMemo(() => {
+    const fromDetails = studentFeeDetails.batch != null ? String(studentFeeDetails.batch).trim() : '';
+    if (fromDetails) return fromDetails;
+    if (stepOneAcademicYear) return stepOneAcademicYear;
+    const fromLead = (lead as { academicYear?: number | string } | undefined)?.academicYear;
+    if (fromLead != null && String(fromLead).trim() !== '') return String(fromLead).trim();
+    return String(new Date().getFullYear());
+  }, [studentFeeDetails.batch, stepOneAcademicYear, lead]);
+
+  const accommodationInjectedRows = useMemo(
+    () =>
+      buildAccommodationInjectedRows(accommodationTransportDetails, {
+        totalYears: programTotalYears,
+        batch: feeConfigurationBatch,
+        course: formState.courseInfo.course || '',
+        branch: feePortalBranchLabel || '',
+        quota: formState.courseInfo.quota,
+      }),
+    [
+      accommodationTransportDetails,
+      programTotalYears,
+      feeConfigurationBatch,
+      formState.courseInfo.course,
+      feePortalBranchLabel,
+      formState.courseInfo.quota,
+    ]
+  );
+
+  useEffect(() => {
+    setStudentFeeDetails((prev) =>
+      applyAccommodationFeesToStudentFeeDetails(
+        prev,
+        accommodationTransportDetails,
+        programTotalYears,
+        feeConfigurationBatch
+      )
+    );
+  }, [accommodationTransportDetails, programTotalYears, feeConfigurationBatch]);
+
+  const payloadForSave = useMemo(() => {
+    // Ensure course and branch names are stored when IDs are present
+    const courseInfo = { ...formState.courseInfo };
+
+    const courseTarget = courseInfo.courseId != null ? String(courseInfo.courseId).trim() : '';
+    const branchTarget = courseInfo.branchId != null ? String(courseInfo.branchId).trim() : '';
+
+    if (courseTarget && !courseInfo.course) {
+      const selectedCourse = courseSettings.find(
+        (item) => String(item.course._id ?? '').trim() === courseTarget
+      );
+      if (selectedCourse) {
+        courseInfo.course = selectedCourse.course.name;
+      }
+    }
+
+    if (branchTarget && courseTarget) {
+      const selectedCourse = courseSettings.find(
+        (item) => String(item.course._id ?? '').trim() === courseTarget
+      );
+      const selectedBranch = selectedCourse?.branches.find(
+        (branch) => String(branch._id ?? '').trim() === branchTarget
+      );
+      if (selectedBranch) {
+        courseInfo.branch = resolveFeePortalBranchLabel(selectedBranch, courseInfo.branch);
+      }
+    }
+
+    const isApprovedAdmission = status === 'approved';
+
+    return {
+      courseInfo,
+      studentInfo: mergeJoiningStudentInfoFromExtras(
+        formState.studentInfo,
+        registrationExtras as Record<string, unknown>
+      ),
+      parents: formState.parents,
+      reservation: (() => {
+        const categoryId =
+          formState.reservation.categoryId || selectedCasteCategoryId || undefined;
+        const categoryName =
+          casteCategories.find((c) => String(c.id) === String(categoryId || ''))?.name || '';
+        const nestedCaste = formState.reservation.casteId
+          ? allCastes.find((c) => String(c.id) === String(formState.reservation.casteId))
+          : null;
+        const isCategoryMirror =
+          Boolean(categoryName) &&
+          Boolean(nestedCaste?.name) &&
+          normalizeCasteKey(nestedCaste?.name || '') === normalizeCasteKey(categoryName);
+        return {
+          // students.caste contract: always category name, never nested caste name.
+          general: categoryName || formState.reservation.general || '',
+          categoryId: categoryId || undefined,
+          casteId: isCategoryMirror ? undefined : formState.reservation.casteId || undefined,
+          isEws: formState.reservation.isEws || false,
+          other: formState.reservation.other || [],
+        };
+      })(),
+      address: formState.address,
+      qualifications: formState.qualifications,
+      educationHistory: formState.educationHistory,
+      hasSiblings: formState.hasSiblings,
+      siblings: formState.hasSiblings ? formState.siblings : [],
+      documents: serializeJoiningDocumentsForApi(formState.documents),
+      reference1: reference1.trim(),
+      admissionPhase: normalizeAdmissionPhaseValue(admissionPhase),
+      ...(isApprovedAdmission
+        ? {
+            // Include full registration extras (college, academic year, etc.).
+            // Previously only transport/portraits were saved on Update Admission, so a
+            // college change never persisted and Edit Application reloaded the old college.
+            registrationFormData: (() => {
+              const stripped = stripJoiningRedundantRegistrationExtras({ ...registrationExtras });
+              return {
+                ...stripped,
+                ...joiningRegistrationPatch,
+                ...portraitRegistrationPatch,
+              };
+            })(),
+            studentFeeDetails: {
+              batch: studentFeeDetails.batch || feeConfigurationBatch,
+              lines: filterPersistableBuilderConcessionLines(studentFeeDetails.lines || []),
+            },
+          }
+        : {
+            registrationFormData: (() => {
+              const stripped = stripJoiningRedundantRegistrationExtras({ ...registrationExtras });
+              const withTransport = {
+                ...stripped,
+                ...joiningRegistrationPatch,
+              };
+              if (derivedCertificationStatus !== null) {
+                return {
+                  ...withTransport,
+                  certification_status: derivedCertificationStatus,
+                  certificates_status: derivedCertificationStatus,
+                };
+              }
+              return withTransport;
+            })(),
+            ...(!isPublicEdit
+              ? {
+                  studentFeeDetails: {
+                    batch: studentFeeDetails.batch,
+                    lines: filterPersistableBuilderConcessionLines(studentFeeDetails.lines || []),
+                  },
+                }
+              : {}),
+          }),
+    };
+  }, [
+    formState,
+    courseSettings,
+    registrationExtras,
+    derivedCertificationStatus,
+    isPublicEdit,
+    studentFeeDetails,
+    joiningRegistrationPatch,
+    portraitRegistrationPatch,
+    status,
+    feeConfigurationBatch,
+    reference1,
+    admissionPhase,
+    selectedCasteCategoryId,
+    casteCategories,
+    allCastes,
+  ]);
+
+  const stepOneNextBlockedHint = useMemo(() => {
+    if (isPublicEdit) return undefined;
+    if (isStudentPhotoRequired && !hasStudentPhoto) {
+      return 'Upload a student photo to continue. This is required by your user permissions.';
+    }
+    if (formState.studentInfo.isScholarApplicable === undefined) {
+      return 'Select whether Scholar is Applicable to continue.';
+    }
+    return undefined;
+  }, [isPublicEdit, isStudentPhotoRequired, hasStudentPhoto, formState.studentInfo.isScholarApplicable]);
+
+  const saveDraftMutation = useMutation({
+    mutationFn: async () => {
+      if (!leadId) return null;
+      if (formState.studentInfo.isScholarApplicable === undefined) {
+        throw new Error('Select whether Scholar is Applicable.');
+      }
+      const payload = {
+        ...payloadForSave,
+        ...(joiningRecord?._id ? { _id: joiningRecord._id } : {}),
+      };
+      if (isPublicEdit && publicToken) {
+        return joiningPublicApi.saveDraft(publicToken, payload);
+      }
+      return joiningAPI.saveDraft(leadId, payload);
+    },
+    onSuccess: (response: any) => {
+      showToast.success('Joining form saved as draft');
+      const savedJoining = response?.data?.data || response?.data;
+      if (isNewJoining && savedJoining?._id && leadId === 'new') {
+        router.replace(`/superadmin/joining/${savedJoining._id}`);
+      } else {
+        refetch();
+      }
+    },
+    onError: (error: any) => {
+      console.error('Error saving draft:', error);
+      const msg = error?.response?.data?.message || error?.message || 'Failed to save draft';
+      showToast.error(msg);
+    },
+  });
+
+  const handleSaveReference = async () => {
+    if (!leadId) return;
+    setIsSavingReference(true);
+    try {
+      if (status === 'approved' && admissionRecord?._id) {
+        await admissionAPI.patchReferenceById(String(admissionRecord._id), reference1.trim());
+        showToast.success('Reference updated successfully');
+      } else {
+        const payload = {
+          ...payloadForSave,
+          ...(joiningRecord?._id ? { _id: joiningRecord._id } : {}),
+        };
+        if (isPublicEdit && publicToken) {
+          await joiningPublicApi.saveDraft(publicToken, payload);
+        } else {
+          await joiningAPI.saveDraft(leadId, payload);
+        }
+        showToast.success('Reference saved successfully');
+      }
+      if (admissionRecord?._id) {
+        void queryClient.invalidateQueries({
+          queryKey: ['admission', String(admissionRecord._id), 'reference-history'],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ['admission', String(admissionRecord._id), 'application-history'],
+        });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['joining', leadId] });
+      void queryClient.invalidateQueries({ queryKey: ['admissions'] });
+    } catch (error: any) {
+      console.error('Error saving reference:', error);
+      const msg = error?.response?.data?.message || error?.message || 'Failed to save reference';
+      showToast.error(msg);
+    } finally {
+      setIsSavingReference(false);
+    }
+  };
+
+  const handleSaveAdmissionPhase = async () => {
+    if (!leadId) return;
+    const phase = normalizeAdmissionPhaseValue(admissionPhase);
+    setIsSavingAdmissionPhase(true);
+    try {
+      if (status === 'approved' && admissionRecord?._id) {
+        await admissionAPI.patchPhaseById(String(admissionRecord._id), phase);
+        showToast.success('Admission phase updated successfully');
+        setAdmissionRecord((prev) => (prev ? { ...prev, admissionPhase: phase } : null));
+      } else {
+        const payload = {
+          ...payloadForSave,
+          admissionPhase: phase,
+          ...(joiningRecord?._id ? { _id: joiningRecord._id } : {}),
+        };
+        if (isPublicEdit && publicToken) {
+          await joiningPublicApi.saveDraft(publicToken, payload);
+        } else {
+          await joiningAPI.saveDraft(leadId, payload);
+        }
+        showToast.success('Admission phase saved successfully');
+      }
+      void queryClient.invalidateQueries({ queryKey: ['joining', leadId] });
+      void queryClient.invalidateQueries({ queryKey: ['admissions'] });
+      if (admissionRecord?._id) {
+        void queryClient.invalidateQueries({ queryKey: ['admission', String(admissionRecord._id)] });
+      }
+    } catch (error: any) {
+      console.error('Error saving admission phase:', error);
+      const msg =
+        error?.response?.data?.message || error?.message || 'Failed to save admission phase';
+      showToast.error(msg);
+    } finally {
+      setIsSavingAdmissionPhase(false);
+    }
+  };
+
+  const handleSaveRemarks = async () => {
+    if (!leadId || !admissionRecord?._id) return;
+    setIsSavingRemarks(true);
+    try {
+      await admissionAPI.patchRemarksById(String(admissionRecord._id), admissionRemarks);
+      showToast.success('Admission remarks updated successfully');
+      void queryClient.invalidateQueries({ queryKey: ['joining', leadId] });
+      void queryClient.invalidateQueries({ queryKey: ['admissions'] });
+      // Update the local admission record with new remarks
+      setAdmissionRecord(prev => prev ? { ...prev, remarks: admissionRemarks } : null);
+    } catch (error: any) {
+      console.error('Error saving admission remarks:', error);
+      const msg = error?.response?.data?.message || error?.message || 'Failed to save admission remarks';
+      showToast.error(msg);
+    } finally {
+      setIsSavingRemarks(false);
+    }
+  };
+
+  const joiningDraftPayloadRef = useRef(payloadForSave);
+  joiningDraftPayloadRef.current = payloadForSave;
+  const joiningRecordIdRef = useRef<string | undefined>(undefined);
+  joiningRecordIdRef.current = joiningRecord?._id;
+
+  const submitMutation = useMutation({
+    mutationFn: async () => {
+      if (!leadId) return null;
+      const payload = {
+        ...joiningDraftPayloadRef.current,
+        ...(joiningRecordIdRef.current ? { _id: joiningRecordIdRef.current } : {}),
+      };
+      if (isPublicEdit && publicToken) {
+        const saved = await joiningPublicApi.saveDraft(publicToken, payload);
+        const savedJoining = (saved as { data?: { _id?: string } | null } | null)?.data || null;
+        const submittedRouteKey =
+          savedJoining && typeof savedJoining === 'object' && savedJoining._id
+            ? String(savedJoining._id)
+            : leadId && leadId !== 'new'
+              ? String(leadId)
+              : undefined;
+        return joiningPublicApi.submit(publicToken, submittedRouteKey);
+      }
+      await joiningAPI.saveDraft(leadId, payload);
+      return joiningAPI.submit(leadId);
+    },
+    onSuccess: () => {
+      if (!isPublicEdit) {
+        showToast.success('Joining form submitted for approval');
+      } else if (!isSelfRegistrationPublic) {
+        showToast.success('Joining form submitted for approval');
+      }
+      if (isPublicEdit) {
+        setPublicSubmitted(true);
+      }
+      refetch();
+      if (!isPublicEdit) {
+        refetchTransactions();
+        setShouldPromptPayment(true);
+        if (typeof window !== 'undefined') {
+          setTimeout(() => {
+            const panel = document.getElementById('payment-panel');
+            if (panel) {
+              panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }, 250);
+        }
+      }
+    },
+    onError: (error: any) => {
+      console.error('Error submitting joining form:', error);
+      const msg = error?.response?.data?.message || error?.message || 'Failed to submit form';
+      showToast.error(msg);
+    },
+  });
+
+  const handleCopyPublicLink = useCallback(async () => {
+    if (!canWriteJoining || status !== 'draft' || isPublicEdit) return;
+    const routeKey = publicLinkRouteKey || (isNewJoining ? 'new' : '');
+    if (!routeKey) return;
+    setPublicLinkBusy(true);
+    try {
+      const res = await joiningAPI.createPublicEditLink(routeKey);
+      const body = res as { data?: { publicUrl?: string; path?: string; token?: string; expiresAt?: string } };
+      const d = body?.data;
+      const pathOnly =
+        d?.path || (d?.token ? `/joining/public?t=${encodeURIComponent(String(d.token))}` : '');
+      const url =
+        d?.publicUrl ||
+        (typeof window !== 'undefined' && pathOnly ? `${window.location.origin}${pathOnly}` : pathOnly);
+      if (url) {
+        setPublicLinkDialog({ url, expiresAt: d?.expiresAt || '' });
+        void navigator.clipboard?.writeText(url).catch(() => {});
+        showToast.success('Public link copied. It expires in 5 minutes.');
+      }
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } }; message?: string };
+      showToast.error(err?.response?.data?.message || err?.message || 'Failed to copy public link');
+    } finally {
+      setPublicLinkBusy(false);
+    }
+  }, [canWriteJoining, status, isPublicEdit, publicLinkRouteKey, isNewJoining]);
+
+  const approveMutation = useMutation({
+    mutationFn: async () => {
+      if (!leadId || isPublicEdit) return null;
+      return joiningAPI.approve(leadId);
+    },
+    onSuccess: (response: any) => {
+      const payload = response?.data || response;
+      const joiningData = payload?.data?.joining || payload?.joining;
+      const generatedAdmissionNumber =
+        payload?.data?.admissionNumber || payload?.admissionNumber || null;
+      const admissionId =
+        payload?.data?.admissionId || payload?.admissionId || null;
+
+      showToast.success('Joining form approved');
+
+      if (isSelfRegistrationRecord && admissionId) {
+        void queryClient.invalidateQueries({ queryKey: ['self-registration'] });
+        router.push(`/superadmin/admission/${admissionId}/detail`);
+        return;
+      }
+
+      if (joiningData) {
+        setStatus((joiningData.status as JoiningStatus) || 'approved');
+        setMeta((prev) => ({
+          ...prev,
+          updatedAt: joiningData.updatedAt,
+          submittedAt: joiningData.submittedAt,
+          approvedAt: joiningData.approvedAt,
+          admissionNumber:
+            generatedAdmissionNumber || joiningData.admissionNumber || prev.admissionNumber,
+        }));
+      } else {
+        setStatus('approved');
+        setMeta((prev) => ({
+          ...prev,
+          admissionNumber: generatedAdmissionNumber || prev.admissionNumber,
+        }));
+      }
+
+      setHasAppliedAdmissionSnapshot(false);
+      setAdmissionRecord(null);
+      refetch();
+      refetchAdmission();
+      refetchTransactions();
+    },
+    onError: (error: any) => {
+      console.error('Error approving joining form:', error);
+      showToast.error(error.response?.data?.message || 'Failed to approve form');
+    },
+  });
+
+  const updateAdmissionMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      /** Prefer SQL admission primary key — URL `leadId` is often the joining row id, not `admissions.lead_id`. */
+      const admissionSqlId = admissionRecord?._id ? String(admissionRecord._id).trim() : '';
+      if (admissionSqlId.length === 36) {
+        return admissionAPI.updateById(admissionSqlId, payload);
+      }
+      const joiningRouteId =
+        joiningRecord?._id || (typeof leadId === 'string' ? leadId.trim() : '');
+      if (joiningRouteId.length === 36) {
+        return admissionAPI.updateByLeadId(joiningRouteId, payload);
+      }
+      const resolvedLeadId = [admissionRecord?.leadId, joiningRecord?.leadId, lead?.id as string | undefined]
+        .map((x) => (x != null ? String(x).trim() : ''))
+        .find((s) => s.length === 36);
+      if (!resolvedLeadId) {
+        throw new Error(
+          'Admission record is not loaded — wait for the form to finish loading, then use Update Admission again.'
+        );
+      }
+      return admissionAPI.updateByLeadId(resolvedLeadId, payload);
+    },
+    onSuccess: async (response, variables) => {
+      showToast.success('Admission record updated');
+
+      const fromResponse = parseAdmissionFromApiBody(response);
+      if (fromResponse) {
+        applyAdmissionRecordToWorkspace(fromResponse);
+        queryClient.setQueryData(['admission', leadId, status], (prev: unknown) => {
+          const prevData =
+            prev && typeof prev === 'object' && 'data' in (prev as object)
+              ? (prev as { data?: Record<string, unknown> }).data
+              : undefined;
+          return {
+            ...(prev && typeof prev === 'object' ? prev : {}),
+            data: {
+              ...(prevData || {}),
+              admission: fromResponse,
+              lead: prevData?.lead ?? lead,
+            },
+          };
+        });
+      }
+
+      const { data: refetched } = await refetchAdmission();
+      const record =
+        (refetched?.data?.admission as Admission | undefined) ?? fromResponse ?? null;
+      if (record) {
+        applyAdmissionRecordToWorkspace(record);
+      }
+
+      await Promise.all([
+        refetch(),
+        refetchTransactions(),
+        queryClient.invalidateQueries({ queryKey: ['admissions'] }),
+      ]);
+    },
+    onError: (error: any) => {
+      console.error('Error updating admission record:', error);
+      showToast.error(error.response?.data?.message || 'Failed to update admission record');
+    },
+  });
+
+  const isSubmitting = submitMutation.isPending;
+  const isSaving = saveDraftMutation.isPending;
+  const isApproving = approveMutation.isPending;
+  const isUpdatingAdmission = updateAdmissionMutation.isPending;
+
+  const canSubmit = canWriteJoining && status !== 'approved' && status !== 'pending_approval';
+  const hasManagedCourseAndBranch = useMemo(() => {
+    const c = String(formState.courseInfo.courseId ?? '').trim();
+    const b = String(formState.courseInfo.branchId ?? '').trim();
+    if (!c || !b) return false;
+    if (isPublicEdit) {
+      return true;
+    }
+    const q = String(formState.courseInfo.quota ?? '').trim();
+    const college = String(selectedCollegeId ?? '').trim();
+    return Boolean(q && college);
+  }, [
+    formState.courseInfo.courseId,
+    formState.courseInfo.branchId,
+    formState.courseInfo.quota,
+    selectedCollegeId,
+    isPublicEdit,
+  ]);
+  const canApprove = !isPublicEdit && canWriteJoining && status === 'pending_approval';
+  const isAdmissionEditable = canEditApprovedAdmission && status === 'approved';
+  const canEditReferenceField =
+    !isPublicEdit &&
+    canEditReference &&
+    (status === 'approved' ? isAdmissionEditable : canWriteJoining);
+
+  const canEditAdmissionPhaseField =
+    !isPublicEdit && (status === 'approved' ? isAdmissionEditable : canWriteJoining);
+
+  const referenceFieldReadOnlyReason = useMemo(() => {
+    if (canEditReferenceField && !isUpdatingAdmission && !isSaving) {
+      return null;
+    }
+    if (isSaving || isUpdatingAdmission) {
+      return 'Please wait — a save is in progress.';
+    }
+    if (isPublicEdit) {
+      return 'Reference is not editable on public joining links.';
+    }
+    if (!canEditReference) {
+      return 'Only Super Admin can edit reference on the joining desk.';
+    }
+    if (status === 'approved' && !isAdmissionEditable) {
+      return 'This admission is approved. You need Edit Admission permission to change reference.';
+    }
+    if (!canWriteJoining) {
+      return 'You have read-only access to the joining desk.';
+    }
+    return 'Reference cannot be edited in the current form state.';
+  }, [
+    canEditReferenceField,
+    isUpdatingAdmission,
+    isSaving,
+    isPublicEdit,
+    canEditReference,
+    status,
+    isAdmissionEditable,
+    canWriteJoining,
+  ]);
+  /** Student / father / mother numbers for the preferred-mobile dropdown (form + lead snapshot). */
+  const preferredMobileSources = useMemo(
+    () =>
+      resolvePreferredMobileSourcePhones({
+        studentPhone: formState.studentInfo.phone,
+        fatherPhone: formState.parents.father.phone,
+        motherPhone: formState.parents.mother.phone,
+        leadPhone: lead?.phone,
+        leadFatherPhone: lead?.fatherPhone,
+        leadMotherPhone: lead?.motherPhone,
+        leadAlternateMobile: lead?.alternateMobile,
+      }),
+    [
+      formState.studentInfo.phone,
+      formState.parents.father.phone,
+      formState.parents.mother.phone,
+      lead?.phone,
+      lead?.fatherPhone,
+      lead?.motherPhone,
+      lead?.alternateMobile,
+    ]
+  );
+
+  const preferredMobileGuardianSources = useMemo(
+    () =>
+      formState.address.relatives
+        .filter((relative) => relative.isGuardian)
+        .map((relative) => ({
+          name: relative.name || '',
+          phone: relative.phone || '',
+        })),
+    [formState.address.relatives]
+  );
+
+  useEffect(() => {
+    preferredMobileAutoFilledRef.current = false;
+  }, [joiningRecord?._id, admissionRecord?._id]);
+
+  /** When preferred mobile is empty, default to parent number if it differs from student. */
+  useEffect(() => {
+    if (preferredMobileAutoFilledRef.current) return;
+    const current = String(formState.studentInfo.preferredMobileNumber || '')
+      .replace(/\D/g, '')
+      .slice(-10);
+    if (current.length === 10) {
+      preferredMobileAutoFilledRef.current = true;
+      return;
+    }
+    const suggested = suggestDefaultPreferredMobileDigits(preferredMobileSources);
+    if (suggested.length !== 10) return;
+    preferredMobileAutoFilledRef.current = true;
+    setFormState((prev) => ({
+      ...prev,
+      studentInfo: { ...prev.studentInfo, preferredMobileNumber: suggested },
+    }));
+  }, [preferredMobileSources, formState.studentInfo.preferredMobileNumber]);
+
+  const joiningPhotoUploadContext = useMemo(
+    () => ({
+      baseSlug:
+        formState.studentInfo.name ||
+        (typeof lead?.name === 'string' ? lead.name : '') ||
+        (typeof lead?.enquiryNumber === 'string' ? String(lead.enquiryNumber) : ''),
+      displayName:
+        String(formState.studentInfo.name || lead?.name || lead?.enquiryNumber || 'Student').trim() ||
+        'Student',
+    }),
+    [formState.studentInfo.name, lead]
+  );
+
+  const showJoiningRegistrationEditor =
+    canWriteJoining || isAdmissionEditable || isPublicEdit;
+
+  const courseBranchSubtitle = useMemo(() => {
+    if (status === 'approved') {
+      const course = String(formState.courseInfo.course || '').trim();
+      const branch =
+        String(formState.courseInfo.branch || '').trim() ||
+        selectedCourseSetting?.branches.find(
+          (b) =>
+            String(b._id ?? '').trim() === String(formState.courseInfo.branchId ?? '').trim()
+        )?.name ||
+        '';
+      if (course && branch) return `${course} - ${branch}`;
+      if (course || branch) return course || branch;
+    }
+    return String(lead?.courseInterested || '').trim();
+  }, [
+    status,
+    formState.courseInfo.course,
+    formState.courseInfo.branch,
+    formState.courseInfo.branchId,
+    selectedCourseSetting,
+    lead?.courseInterested,
+  ]);
+  const paymentReceiptPrintDetails = useMemo(
+    () =>
+      buildPaymentReceiptDetailsFromForm({
+        formState,
+        lead,
+        admissionNumber: admissionNumberDisplay || meta.admissionNumber,
+        amount: paymentFormState.amount,
+        mode: openPaymentMode === 'online' ? 'online' : 'cash',
+        transactionId: paymentFormState.referenceId,
+        feeHeadLabel: selectedFeeHead?.label,
+        isAdditionalFee: isAdditionalFeeMode,
+      }),
+    [
+      formState,
+      lead,
+      admissionNumberDisplay,
+      meta.admissionNumber,
+      paymentFormState.amount,
+      paymentFormState.referenceId,
+      openPaymentMode,
+      selectedFeeHead?.label,
+      isAdditionalFeeMode,
+    ]
+  );
+  const admitCardPrintStudent = useMemo(
+    () =>
+      buildAdmitCardStudentFromForm({
+        formState,
+        lead,
+        admissionNumber: admissionNumberDisplay || meta.admissionNumber,
+        collegeName: selectedCollegeName,
+        dateOfJoining: admissionRecord?.admissionDate ?? admissionRecord?.createdAt,
+        documentChecklist: documentsChecklistForPrint,
+        certificateGuidance,
+        certificateChecklistParsed: registrationExtras.certificate_checklist as
+          | Record<string, unknown>
+          | undefined,
+        registrationFormData: registrationExtras as Record<string, unknown>,
+        application: joiningRecord ?? admissionRecord ?? undefined,
+      }),
+    [
+      formState,
+      lead,
+      admissionNumberDisplay,
+      meta.admissionNumber,
+      selectedCollegeName,
+      documentsChecklistForPrint,
+      certificateGuidance,
+      registrationExtras,
+      admissionRecord,
+      joiningRecord,
+    ]
+  );
+  const isBusy = isLoading || (isAdmissionEditable && isLoadingAdmission && !admissionRecord);
+
+  const hasRevisedFeeLines = useMemo(
+    () =>
+      hasRevisedStudentFeeLineOverrides(
+        studentFeeDetails.lines,
+        accommodationInjectedRows
+      ),
+    [studentFeeDetails.lines, accommodationInjectedRows]
+  );
+
+  const allFeeStructuresQuery = useQuery({
+    queryKey: ['all-fee-structures-dropdown'],
+    queryFn: async () => {
+      const res = await feeStructureAPI.list({});
+      return res;
+    },
+    enabled: !isPublicEdit && (useWizard ? applicationWizardStep === 4 : showAdminPostAdmissionStep4),
+    staleTime: 60_000,
+  });
+
+  const studentStatus = String(
+    registrationExtras.student_status ??
+    registrationExtras.studentStatus ??
+    (lead as any)?.studentStatus ??
+    ''
+  ).trim();
+
+  const feeStructuresQuery = useQuery({
+    queryKey: [
+      'fee-structures-catalog-map',
+      formState.courseInfo.course || null,
+      feePortalBranchLabel || null,
+      formState.courseInfo.quota || null,
+      stepOneAcademicYear || feeConfigurationBatch || null,
+      studentStatus || null,
+    ],
+    queryFn: async () => {
+      const res = await feeStructureAPI.list({
+        course: formState.courseInfo.course || undefined,
+        branch: feePortalBranchLabel || undefined,
+        quota: formState.courseInfo.quota || undefined,
+        batch: stepOneAcademicYear || feeConfigurationBatch || undefined,
+        studentStatus: studentStatus || undefined,
+      });
+      return res;
+    },
+    enabled: !isPublicEdit && (useWizard ? applicationWizardStep === 4 : showAdminPostAdmissionStep4),
+    staleTime: 60_000,
+  });
+
+  const feeHeadsQuery = useQuery({
+    queryKey: ['fee-heads-master'],
+    queryFn: async () => {
+      const res = await feeStructureAPI.feeHeads();
+      return res;
+    },
+    enabled: !isPublicEdit && (useWizard ? applicationWizardStep === 4 : showAdminPostAdmissionStep4),
+    staleTime: 60_000,
+  });
+
+  const allFeeStructureRows = useMemo(
+    () => extractFeeStructureRows(allFeeStructuresQuery.data),
+    [allFeeStructuresQuery.data]
+  );
+
+  const feeStructureCatalogRows = useMemo(
+    () => extractFeeStructureRows(feeStructuresQuery.data),
+    [feeStructuresQuery.data]
+  );
+
+  const feeHeadRows = useMemo(() => extractFeeHeadRows(feeHeadsQuery.data), [feeHeadsQuery.data]);
+
+  const overallConcessionsQuery = useQuery({
+    queryKey: ['overall-concessions', admissionNumberDisplay || joiningRecord?._id || null],
+    queryFn: async () => {
+      const res = await paymentAPI.getOverallConcessions(
+        String(admissionNumberDisplay || ''),
+        String(joiningRecord?._id || '')
+      );
+      return res;
+    },
+    enabled:
+      !isPublicEdit &&
+      (Boolean(admissionNumberDisplay) || Boolean(joiningRecord?._id)) &&
+      (useWizard ? applicationWizardStep === 4 : showAdminPostAdmissionStep4),
+    staleTime: 5_000,
+    refetchOnMount: 'always',
+  });
+
+  const overallConcessionLines = useMemo(() => {
+    const data = (overallConcessionsQuery.data as { data?: { revisedFees?: unknown } } | undefined)?.data;
+    return Array.isArray(data?.revisedFees) ? data.revisedFees : [];
+  }, [overallConcessionsQuery.data]);
+
+  const feeManagementRemarks = (overallConcessionsQuery.data as { data?: { remarks?: string } } | undefined)?.data?.remarks;
+
+  useEffect(() => {
+    if (feeManagementRemarks !== undefined && feeManagementRemarks !== null && feeManagementRemarks.trim() !== '') {
+      setAdmissionRemarks(feeManagementRemarks.trim());
+    }
+  }, [feeManagementRemarks]);
+
+  /**
+   * Set of feeHeadId (or feeHeadCode) values that came back from the API tagged
+   * pending:true — i.e. lines from a pending fee_request, not yet approved.
+   * Used to render builder rows as read-only with a "Pending Approval" badge.
+   */
+  const pendingConcessionHeadIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const line of overallConcessionLines as Array<{ feeHeadId?: string; feeHeadCode?: string; pending?: boolean }>) {
+      if (!line.pending) continue;
+      const id = String(line.feeHeadId || line.feeHeadCode || '').trim();
+      if (id) set.add(id);
+    }
+    return set;
+  }, [overallConcessionLines]);
+
+  useEffect(() => {
+    builderConcessionsDirtyRef.current = false;
+    builderConcessionsHydratedForRef.current = null;
+    setBuilderAddedHeadIds([]);
+    setBuilderHeadConcessionTypes({});
+  }, [admissionNumberDisplay, joiningRecord?._id]);
+
+  useEffect(() => {
+    if (isPublicEdit || (!admissionNumberDisplay && !joiningRecord?._id)) return;
+    if (!overallConcessionsQuery.isFetched) return;
+    if (builderConcessionsDirtyRef.current) return;
+
+    const hydrateKey = `${admissionNumberDisplay}::${overallConcessionsQuery.dataUpdatedAt}::${feeStructureCatalogRows.length}`;
+    if (builderConcessionsHydratedForRef.current === hydrateKey) return;
+
+    const dbLines = overallConcessionLinesToBuilderLines<RequiredOverride>(
+      overallConcessionLines as OverallConcessionLine[],
+      feeStructureCatalogRows,
+      feeHeadRows
+    );
+
+    const draftLines = Array.isArray(joiningRecord?.studentFeeDetails?.lines)
+      ? joiningRecord.studentFeeDetails.lines
+      : [];
+
+    const lineKey = (line: JoiningStudentFeeLineOverride) => {
+      const head = String(line?.feeHeadId || line?.feeHeadCode || '').trim().toUpperCase();
+      const year = Number(line?.studentYear) || 1;
+      if (head) return `${head}::${year}`;
+      return String(line?.structureId || '');
+    };
+
+    const mergedLinesMap = new Map<string, JoiningStudentFeeLineOverride>();
+    
+    // Draft lines from the joining record
+    for (const line of draftLines) {
+      const k = lineKey(line);
+      if (k) mergedLinesMap.set(k, line);
+    }
+    
+    // Approved / pending database lines take precedence
+    for (const line of dbLines) {
+      const k = lineKey(line);
+      if (k) mergedLinesMap.set(k, line);
+    }
+
+    const lines = Array.from(mergedLinesMap.values());
+
+    const typeMap: Record<string, 'REVISED_FEE' | 'CONCESSION'> = {};
+    for (const line of lines) {
+      const headId = line.feeHeadId ? String(line.feeHeadId).trim() : '';
+      if (!headId || !line.concessionType) continue;
+      typeMap[headId] = line.concessionType;
+    }
+    setStudentFeeDetails((prev) => ({
+      ...prev,
+      lines: filterPersistableBuilderConcessionLines(lines),
+    }));
+    setBuilderHeadConcessionTypes(typeMap);
+    setBuilderAddedHeadIds([]);
+    builderConcessionsHydratedForRef.current = hydrateKey;
+  }, [
+    status,
+    isPublicEdit,
+    admissionNumberDisplay,
+    overallConcessionsQuery.isFetched,
+    overallConcessionsQuery.dataUpdatedAt,
+    overallConcessionLines,
+    feeStructureCatalogRows,
+    feeHeadRows,
+    joiningRecord?.studentFeeDetails?.lines,
+  ]);
+
+  const feeMongoTransactionsQuery = useQuery({
+    queryKey: [
+      'fee-mongo-transactions',
+      'v2',
+      joiningRecord?._id || null,
+      admissionRecord?._id || null,
+      feeMongoAdmissionNumber || null,
+    ],
+    queryFn: async () => {
+      const res = await paymentAPI.listFeeManagementTransactions({
+        joiningId: joiningRecord?._id,
+        admissionId: admissionRecord?._id,
+        admissionNumber: feeMongoAdmissionNumber || undefined,
+      });
+      return res;
+    },
+    enabled:
+      isBuilderPaymentDialogOpen &&
+      Boolean(joiningRecord?._id || admissionRecord?._id || feeMongoAdmissionNumber),
+    staleTime: 15_000,
+    refetchOnMount: 'always',
+  });
+
+  const feeMongoTransactions = useMemo(() => {
+    const response = feeMongoTransactionsQuery.data as
+      | { transactions?: unknown[]; data?: { data?: unknown[]; transactions?: unknown[] } | unknown[] }
+      | unknown[]
+      | undefined;
+    let rows: unknown[] = [];
+    if (Array.isArray(response)) rows = response;
+    else if (Array.isArray(response?.transactions)) rows = response.transactions;
+    else {
+      const payload = response?.data;
+      if (Array.isArray(payload)) rows = payload;
+      else if (payload && typeof payload === 'object' && 'transactions' in payload && Array.isArray(payload.transactions)) {
+        rows = payload.transactions;
+      } else if (payload && typeof payload === 'object' && 'data' in payload && Array.isArray(payload.data)) {
+        rows = payload.data;
+      }
+    }
+    // Hide Fee Management CREDIT (concessions) — show payment collections only.
+    return rows.filter((tx) => {
+      if (!tx || typeof tx !== 'object') return false;
+      const type = String((tx as { transactionType?: string }).transactionType || '')
+        .trim()
+        .toUpperCase();
+      return type !== 'CREDIT';
+    });
+  }, [feeMongoTransactionsQuery.data]);
+
+  const feeMongoTransactionFilters = useMemo(() => {
+    const response = feeMongoTransactionsQuery.data as
+      | { filters?: { studentId?: string }; data?: { filters?: { studentId?: string } } }
+      | undefined;
+    return response?.filters || response?.data?.filters || null;
+  }, [feeMongoTransactionsQuery.data]);
+
+  const feeMongoPaidByHeadYear = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const tx of feeMongoTransactions) {
+      if (!tx || typeof tx !== 'object') continue;
+      const row = tx as {
+        feeHead?: string;
+        feeHeadCode?: string;
+        studentYear?: string | number | null;
+        amount?: string | number | null;
+        transactionType?: string;
+        status?: string;
+      };
+      if (row.status === 'cancelled') continue;
+      // Paid = DEBIT collections only. Ignore CREDIT (concessions / adjustments).
+      if (String(row.transactionType || '').trim().toUpperCase() !== 'DEBIT') continue;
+      const year = Number(row.studentYear) || 1;
+      const amount = Number(row.amount) || 0;
+      if (amount <= 0) continue;
+      const add = (key: string) => {
+        map.set(key, (map.get(key) || 0) + amount);
+      };
+      if (row.feeHead) add(`${String(row.feeHead)}::${year}`);
+      if (row.feeHeadCode) add(`code:${String(row.feeHeadCode).toUpperCase()}::${year}`);
+    }
+    return map;
+  }, [feeMongoTransactions]);
+
+  const overallConcessionByHeadYear = useMemo(() => {
+    const map = new Map<string, OverallConcessionLine>();
+    for (const line of overallConcessionLines) {
+      if (!line || typeof line !== 'object') continue;
+      const row = line as OverallConcessionLine;
+      const year = Number(row.studentYear) || 1;
+      if (row.feeHeadId) {
+        map.set(`${String(row.feeHeadId)}::${year}`, row);
+      }
+      if (row.feeHeadCode) {
+        map.set(`code:${String(row.feeHeadCode).toUpperCase()}::${year}`, row);
+      }
+    }
+    return map;
+  }, [overallConcessionLines]);
+
+  const allUniqueFeeHeads = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; code: string }>();
+
+    const addToMap = (item: {
+      feeHead?: string | null;
+      feeHeadId?: string | null;
+      feeHeadName?: string;
+      feeHeadCode?: string;
+    }) => {
+      const headId = String(item.feeHead || item.feeHeadId || '').trim();
+      if (headId && !map.has(headId)) {
+        const display = resolveStepFourFeeHeadDisplay(
+          { feeHeadId: headId, feeHeadCode: item.feeHeadCode, feeHeadName: item.feeHeadName },
+          feeHeadRows
+        );
+
+        map.set(headId, {
+          id: headId,
+          name: display.feeHeadName || headId,
+          code: display.feeHeadCode,
+        });
+      }
+    };
+
+    for (const item of feeHeadRows) {
+      addToMap({
+        feeHead: item._id || item.id,
+        feeHeadName: item.name,
+        feeHeadCode: item.code,
+      });
+    }
+    for (const item of allFeeStructureRows) addToMap(item);
+    for (const item of feeStructureCatalogRows) addToMap(item);
+    for (const item of accommodationInjectedRows) addToMap(item);
+
+    const sortedList = Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return sortedList.filter(h =>
+      h.code === 'TUI01' || h.code === 'OTH1' || h.code === 'TRN01' || h.code === 'HST01' ||
+      /tuition|tution/i.test(h.name) ||
+      /special\s*fee/i.test(h.name) ||
+      /other/i.test(h.name) ||
+      /transport|bus|hostel/i.test(h.name)
+    );
+  }, [feeHeadRows, allFeeStructureRows, feeStructureCatalogRows, accommodationInjectedRows]);
+
+  const persistableBuilderLines = useMemo(
+    () => filterPersistableBuilderConcessionLines(studentFeeDetails.lines || []),
+    [studentFeeDetails.lines]
+  );
+
+  const currentBuilderHeads = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; code: string }>();
+    const accommodationType = accommodationTransportDetails?.accommodationType;
+
+    // Tuition + Special Fee are always available; bus/hostel only when Step 3 picked one.
+    const tutionHead = allUniqueFeeHeads.find(h => h.code === 'TUI01') || allUniqueFeeHeads.find(h => /tuition|tution/i.test(h.name));
+    const othersHead =
+      allUniqueFeeHeads.find(h => h.code === 'OTH1') ||
+      allUniqueFeeHeads.find(h => /special\s*fee/i.test(h.name)) ||
+      allUniqueFeeHeads.find(h => /bus\s*\/\s*hostel\s*\/\s*others/i.test(h.name)) ||
+      allUniqueFeeHeads.find(h => /other/i.test(h.name)) ||
+      (() => {
+        const master = feeHeadRows.find((h) => {
+          const code = String(h.code || '').trim().toUpperCase();
+          return code === 'OTH1' || code === 'OTH02';
+        });
+        if (!master) return undefined;
+        const id = String(master._id || master.id || '').trim();
+        if (!id) return undefined;
+        return { id, name: String(master.name || 'OTH1'), code: 'OTH1' };
+      })();
+    const accommodationHead =
+      accommodationType === 'hostel'
+        ? allUniqueFeeHeads.find(h => h.code === 'HST01') ||
+          allUniqueFeeHeads.find(h => /hostel/i.test(h.name))
+        : accommodationType === 'bus'
+          ? allUniqueFeeHeads.find(h => h.code === 'TRN01') ||
+            allUniqueFeeHeads.find(h => /transport|bus/i.test(h.name))
+          : undefined;
+
+    if (tutionHead) map.set(tutionHead.id, tutionHead);
+    if (othersHead) map.set(othersHead.id, othersHead);
+    if (accommodationHead) map.set(accommodationHead.id, accommodationHead);
+
+    for (const line of studentFeeDetails.lines || []) {
+      if (line.concessionType !== 'CONCESSION' && line.concessionType !== 'REVISED_FEE') {
+        continue;
+      }
+      let feeHeadId = line.feeHeadId;
+      let feeHeadCode = line.feeHeadCode;
+      let feeHeadName = line.feeHeadName;
+
+      if (!feeHeadId) {
+        const matchingCatalog = feeStructureCatalogRows.find((c) => String(c._id) === String(line.structureId));
+        if (matchingCatalog) {
+          feeHeadId = matchingCatalog.feeHead || undefined;
+          feeHeadCode = matchingCatalog.feeHeadCode;
+          feeHeadName = matchingCatalog.feeHeadName;
+        }
+      }
+
+      const display = resolveStepFourFeeHeadDisplay(
+        { feeHeadId, feeHeadCode, feeHeadName },
+        feeHeadRows
+      );
+      feeHeadCode = display.feeHeadCode;
+      feeHeadName = display.feeHeadName;
+
+      // Resolve the master fee head name from allUniqueFeeHeads using code or ID
+      if (feeHeadCode) {
+        const masterHead = allUniqueFeeHeads.find(h => h.code === feeHeadCode);
+        if (masterHead) {
+          feeHeadName = masterHead.name;
+          if (!feeHeadId) feeHeadId = masterHead.id;
+        }
+      } else if (feeHeadId) {
+        const masterHead = allUniqueFeeHeads.find(h => h.id === feeHeadId);
+        if (masterHead) {
+          feeHeadName = masterHead.name;
+          feeHeadCode = masterHead.code;
+        }
+      }
+
+      if (feeHeadId && !map.has(feeHeadId)) {
+        const codeAlreadyPresent = Boolean(
+          feeHeadCode &&
+            Array.from(map.values()).some(
+              (head) => String(head.code || '').toUpperCase() === feeHeadCode!.toUpperCase()
+            )
+        );
+        if (codeAlreadyPresent) continue;
+        map.set(feeHeadId, {
+          id: feeHeadId,
+          name: feeHeadName || feeHeadCode || feeHeadId,
+          code: feeHeadCode || '',
+        });
+      }
+    }
+
+    for (const headId of builderAddedHeadIds) {
+      if (map.has(headId)) continue;
+      const head = allUniqueFeeHeads.find((item) => item.id === headId);
+      if (head) {
+        map.set(headId, head);
+      }
+    }
+
+    return Array.from(map.values()).filter(h =>
+      h.code === 'TUI01' || h.code === 'OTH1' || h.code === 'TRN01' || h.code === 'HST01' ||
+      /tuition|tution/i.test(h.name) ||
+      /special\s*fee/i.test(h.name) ||
+      /other/i.test(h.name) ||
+      /transport|bus|hostel/i.test(h.name)
+    );
+  }, [studentFeeDetails.lines, feeStructureCatalogRows, feeHeadRows, builderAddedHeadIds, allUniqueFeeHeads, accommodationTransportDetails?.accommodationType]);
+
+  /**
+   * Admission number may only be minted when at least one selected Step 4 fee head
+   * has revised/concession amounts for all displayed years. Other heads may stay empty.
+   */
+  const builderHeadsCompleteness = useMemo(
+    () =>
+      getMissingBuilderHeadYearAmounts({
+        heads: currentBuilderHeads,
+        years: feeYearColumns,
+        lines: studentFeeDetails.lines || [],
+      }),
+    [currentBuilderHeads, feeYearColumns, studentFeeDetails.lines]
+  );
+  const allBuilderHeadsHaveAmounts = builderHeadsCompleteness.complete;
+  const canSubmitFeeRequestForAdmission =
+    hasRevisedFeeLines && allBuilderHeadsHaveAmounts && currentBuilderHeads.length > 0;
+
+  const builderPaymentRows = useMemo(() => {
+    const normalizeHeadCode = (raw?: string | null) => {
+      let code = String(raw || '').trim().toUpperCase();
+      if (code === 'OTH02') code = 'OTH1';
+      return code;
+    };
+
+    // OTH1 is often stored in Fee Management as "BUS/HOSTEL/OTHERS" — that name must
+    // NEVER be treated as a Step 3 accommodation head or Collect drops Special Fee.
+    const isOtherSpecialFeeHead = (row: {
+      feeHeadCode?: string | null;
+      feeHeadName?: string | null;
+    }) => {
+      const code = normalizeHeadCode(row.feeHeadCode);
+      const name = String(row.feeHeadName || '').trim().toLowerCase();
+      return (
+        code === 'OTH1' ||
+        /^oth\d*/i.test(code) ||
+        /special\s*fee/.test(name) ||
+        /bus\s*\/\s*hostel\s*\/\s*others/.test(name) ||
+        name === 'bus/hostel/others'
+      );
+    };
+
+    const isCatalogAccommodationRow = (row: {
+      feeHeadCode?: string | null;
+      feeHeadName?: string | null;
+    }) => {
+      if (isOtherSpecialFeeHead(row)) return false;
+      const code = normalizeHeadCode(row.feeHeadCode);
+      const name = String(row.feeHeadName || '').trim().toLowerCase();
+      return (
+        code === 'TRN01' ||
+        code === 'HST01' ||
+        /^trn/i.test(code) ||
+        /^hst/i.test(code) ||
+        /\btransport\b/.test(name) ||
+        // Match standalone bus/hostel labels only — not the OTH1 "BUS/HOSTEL/OTHERS" blob.
+        name === 'bus fee' ||
+        name === 'bus' ||
+        name === 'hostel fee' ||
+        name === 'hostel'
+      );
+    };
+
+    // Collect Payment shows Revised Fee builder heads + Step 3 bus/hostel + Application Fee + OTH1.
+    // Other catalog-only heads (e.g. SCH01) stay out.
+    const builderHeadIds = new Set(currentBuilderHeads.map((h) => String(h.id)));
+    const builderHeadCodes = new Set(
+      currentBuilderHeads
+        .map((h) => normalizeHeadCode(h.code))
+        .filter(Boolean)
+    );
+    // Always keep Special Fee (OTH1) collectable even if the builder head list missed it.
+    builderHeadCodes.add('OTH1');
+
+    const isApplicationFeeHead = (row: {
+      feeHeadCode?: string | null;
+      feeHeadName?: string | null;
+    }) => {
+      const code = normalizeHeadCode(row.feeHeadCode);
+      const name = String(row.feeHeadName || '').trim().toLowerCase();
+      return code === 'APPL01' || /^appl/i.test(code) || /\bapplication\b/.test(name);
+    };
+
+    const isCollectableHead = (row: {
+      feeHead?: string | null;
+      feeHeadCode?: string | null;
+      feeHeadName?: string | null;
+    }) => {
+      const headId = String(row.feeHead || '').trim();
+      const code = normalizeHeadCode(row.feeHeadCode);
+      if (headId && builderHeadIds.has(headId)) return true;
+      if (code && builderHeadCodes.has(code)) return true;
+      if (isApplicationFeeHead(row)) return true;
+      if (isOtherSpecialFeeHead(row)) return true;
+      return false;
+    };
+
+    // Bus/hostel heads only appear when Step 3 selected them (injected rows) —
+    // never straight from the fee catalog. OTH1 is never treated as accommodation.
+    const catalogRows = feeStructureCatalogRows.filter(
+      (row) => !isCatalogAccommodationRow(row) && isCollectableHead(row)
+    );
+
+    const combinedRows = [...catalogRows, ...accommodationInjectedRows];
+    const coveredStructureIds = new Set(combinedRows.map((row) => String(row._id)));
+    const coveredHeadYears = new Set<string>();
+
+    type PaymentRow = {
+      structureId: string;
+      feeHeadId: string;
+      feeHeadName: string;
+      feeHeadCode: string;
+      studentYear: number;
+      semester: number | string | null;
+      catalogAmount: number;
+      adjustmentAmount: number | null;
+      payableAmount: number;
+      paidAmount: number;
+      concessionType: string;
+    };
+
+    const rows: PaymentRow[] = [];
+
+    const resolvePaid = (feeHeadId: string, feeHeadCode: string, year: number) =>
+      (feeHeadId ? feeMongoPaidByHeadYear.get(`${feeHeadId}::${year}`) : undefined) ??
+      (feeHeadCode
+        ? feeMongoPaidByHeadYear.get(`code:${feeHeadCode.toUpperCase()}::${year}`)
+        : undefined) ??
+      0;
+
+    for (const row of combinedRows) {
+      const feeHeadId = String(row.feeHead || '').trim();
+      const rawFeeHeadCode = String(row.feeHeadCode || '').trim();
+      const display = resolveStepFourFeeHeadDisplay(
+        { feeHeadId, feeHeadCode: rawFeeHeadCode, feeHeadName: row.feeHeadName },
+        feeHeadRows
+      );
+      const feeHeadCode = display.feeHeadCode;
+      const feeHeadName = display.feeHeadName;
+      const year = Number(row.studentYear) || 1;
+      const catalogAmount = Number(row.amount) || 0;
+      const structureId = String(row._id);
+
+      // Builder edits live as custom-{headId}-{year} lines whenever the grid found no
+      // catalog row for its head id (injected bus/hostel rows, or a catalog row whose
+      // feeHead id differs from the master head id) — prefer that amount so Collect
+      // matches the Revised Fee builder.
+      const customStructureId = feeHeadId ? `custom-${feeHeadId}-${year}` : '';
+      const localLine =
+        (studentFeeDetails.lines || []).find((line) => String(line.structureId) === structureId) ||
+        (customStructureId
+          ? (studentFeeDetails.lines || []).find((line) => String(line.structureId) === customStructureId)
+          : undefined) ||
+        (studentFeeDetails.lines || []).find((line) => {
+          if (!String(line.structureId || '').startsWith('custom-')) return false;
+          const lineYear = Number(line.studentYear) || 1;
+          if (lineYear !== year) return false;
+          if (feeHeadId && line.feeHeadId && String(line.feeHeadId) === feeHeadId) return true;
+          let lineCode = String(line.feeHeadCode || '').trim().toUpperCase();
+          if (lineCode === 'OTH02') lineCode = 'OTH1';
+          return Boolean(feeHeadCode && lineCode && lineCode === feeHeadCode.toUpperCase());
+        });
+
+      if (localLine?.structureId) coveredStructureIds.add(String(localLine.structureId));
+      if (feeHeadId) coveredHeadYears.add(`${feeHeadId}::${year}`);
+      if (feeHeadCode) coveredHeadYears.add(`code:${feeHeadCode.toUpperCase()}::${year}`);
+      if (rawFeeHeadCode) coveredHeadYears.add(`code:${rawFeeHeadCode.toUpperCase()}::${year}`);
+      if (localLine?.feeHeadId) coveredHeadYears.add(`${String(localLine.feeHeadId)}::${year}`);
+
+      const localAmount =
+        localLine?.amount !== undefined && localLine?.amount !== null ? Number(localLine.amount) || 0 : null;
+      const localType = localLine?.concessionType || undefined;
+
+      const overallLine =
+        (feeHeadId ? overallConcessionByHeadYear.get(`${feeHeadId}::${year}`) : undefined) ||
+        (feeHeadCode
+          ? overallConcessionByHeadYear.get(`code:${feeHeadCode.toUpperCase()}::${year}`)
+          : undefined) ||
+        (rawFeeHeadCode
+          ? overallConcessionByHeadYear.get(`code:${rawFeeHeadCode.toUpperCase()}::${year}`)
+          : undefined);
+
+      const resolvedFromLocal =
+        localType && localAmount !== null && localAmount > 0
+          ? resolveOverallConcessionLine(
+              { concessionType: localType, amount: localAmount },
+              catalogAmount
+            )
+          : null;
+      const resolvedFromOverall = overallLine
+        ? resolveOverallConcessionLine(overallLine, catalogAmount)
+        : null;
+      const resolved = resolvedFromLocal || resolvedFromOverall;
+
+      const concessionType = resolved
+        ? resolved.concessionType
+        : localType || 'CONFIGURED_FEE';
+      const adjustmentAmount =
+        resolved && resolved.concessionType === 'CONCESSION' ? resolved.adjustmentAmount : null;
+      const payableAmount = resolved ? resolved.payableAmount : catalogAmount;
+
+      if (catalogAmount <= 0 && payableAmount <= 0) continue;
+
+      rows.push({
+        structureId: localLine?.structureId ? String(localLine.structureId) : structureId,
+        feeHeadId,
+        feeHeadName,
+        feeHeadCode,
+        studentYear: year,
+        semester: row.semester ?? null,
+        catalogAmount,
+        adjustmentAmount,
+        payableAmount,
+        paidAmount: resolvePaid(feeHeadId, feeHeadCode, year),
+        concessionType,
+      });
+    }
+
+    // Include builder custom lines (e.g. Bus Fee TRN01 as custom-{headId}-{year}) that are
+    // not present in fee catalog / accommodation injection — otherwise Collect Payment omits them.
+    // Only builder heads, Application Fee, or Step 3 bus/hostel codes are allowed.
+    for (const line of studentFeeDetails.lines || []) {
+      const structureId = String(line.structureId || '').trim();
+      if (!structureId || coveredStructureIds.has(structureId)) continue;
+
+      const year = Number(line.studentYear) > 0 ? Number(line.studentYear) : 1;
+      const feeHeadId = String(line.feeHeadId || '').trim();
+      const rawCode = String(line.feeHeadCode || '').trim();
+      const display = resolveStepFourFeeHeadDisplay(
+        { feeHeadId, feeHeadCode: rawCode, feeHeadName: line.feeHeadName },
+        feeHeadRows
+      );
+      const feeHeadCode = display.feeHeadCode;
+      const feeHeadName = display.feeHeadName;
+
+      const isAllowedHead =
+        (feeHeadId && builderHeadIds.has(feeHeadId)) ||
+        (feeHeadCode && builderHeadCodes.has(feeHeadCode.toUpperCase())) ||
+        feeHeadCode === 'TRN01' ||
+        feeHeadCode === 'HST01' ||
+        isApplicationFeeHead({ feeHeadCode, feeHeadName }) ||
+        isOtherSpecialFeeHead({ feeHeadCode: feeHeadCode || rawCode, feeHeadName });
+      if (!isAllowedHead) continue;
+
+      // Same head (by id OR normalized code) already rendered from catalog/injected rows —
+      // skip so e.g. OTH1 never shows twice when the builder line has a different head id.
+      if (
+        (feeHeadId && coveredHeadYears.has(`${feeHeadId}::${year}`)) ||
+        (feeHeadCode && coveredHeadYears.has(`code:${feeHeadCode.toUpperCase()}::${year}`)) ||
+        (rawCode && coveredHeadYears.has(`code:${rawCode.toUpperCase()}::${year}`))
+      ) {
+        continue;
+      }
+
+      const injectedMatch = accommodationInjectedRows.find((row) => {
+        if (Number(row.studentYear) !== year) return false;
+        if (feeHeadId && String(row.feeHead || '') === feeHeadId) return true;
+        return (
+          feeHeadCode &&
+          String(row.feeHeadCode || '')
+            .trim()
+            .toUpperCase() === feeHeadCode.toUpperCase()
+        );
+      });
+      const catalogAmount = injectedMatch ? Number(injectedMatch.amount) || 0 : 0;
+      const localAmount =
+        line.amount !== undefined && line.amount !== null ? Number(line.amount) || 0 : null;
+      const localType = line.concessionType || undefined;
+
+      const overallLine =
+        (feeHeadId ? overallConcessionByHeadYear.get(`${feeHeadId}::${year}`) : undefined) ||
+        (feeHeadCode
+          ? overallConcessionByHeadYear.get(`code:${feeHeadCode.toUpperCase()}::${year}`)
+          : undefined);
+
+      const resolvedFromLocal =
+        localType && localAmount !== null && localAmount > 0
+          ? resolveOverallConcessionLine(
+              { concessionType: localType, amount: localAmount },
+              catalogAmount
+            )
+          : null;
+      const resolvedFromOverall = overallLine
+        ? resolveOverallConcessionLine(overallLine, catalogAmount)
+        : null;
+      const resolved = resolvedFromLocal || resolvedFromOverall;
+      const payableAmount = resolved ? resolved.payableAmount : localAmount && localAmount > 0 ? localAmount : catalogAmount;
+
+      if (catalogAmount <= 0 && payableAmount <= 0) continue;
+
+      coveredStructureIds.add(structureId);
+      if (feeHeadId) coveredHeadYears.add(`${feeHeadId}::${year}`);
+      if (feeHeadCode) coveredHeadYears.add(`code:${feeHeadCode.toUpperCase()}::${year}`);
+
+      rows.push({
+        structureId,
+        feeHeadId,
+        feeHeadName,
+        feeHeadCode,
+        studentYear: year,
+        semester: null,
+        catalogAmount,
+        adjustmentAmount:
+          resolved && resolved.concessionType === 'CONCESSION' ? resolved.adjustmentAmount : null,
+        payableAmount,
+        paidAmount: resolvePaid(feeHeadId, feeHeadCode, year),
+        concessionType: resolved ? resolved.concessionType : localType || 'CONFIGURED_FEE',
+      });
+    }
+
+    return rows;
+  }, [
+    feeMongoPaidByHeadYear,
+    feeStructureCatalogRows,
+    feeHeadRows,
+    currentBuilderHeads,
+    overallConcessionByHeadYear,
+    studentFeeDetails.lines,
+    accommodationInjectedRows,
+  ]);
+
+  /** All master fee heads available for ad-hoc collection in the payment dialog. */
+  const collectMasterFeeHeads = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; code: string }>();
+    for (const item of feeHeadRows) {
+      const id = String(item._id || item.id || '').trim();
+      if (!id || map.has(id)) continue;
+      let code = String(item.code || '').trim().toUpperCase();
+      if (code === 'OTH02') code = 'OTH1';
+      map.set(id, {
+        id,
+        name: String(item.name || '').trim() || id,
+        code,
+      });
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [feeHeadRows]);
+
+  const builderPaymentYearRows = useMemo(() => {
+    const base = builderPaymentRows.filter((row) => row.studentYear === builderPaymentYear);
+    const existingIds = new Set(base.map((row) => String(row.feeHeadId || '').trim()).filter(Boolean));
+    const existingCodes = new Set(
+      base
+        .map((row) => String(row.feeHeadCode || '').trim().toUpperCase())
+        .filter(Boolean)
+    );
+
+    const resolvePaid = (feeHeadId: string, feeHeadCode: string, year: number) =>
+      (feeHeadId ? feeMongoPaidByHeadYear.get(`${feeHeadId}::${year}`) : undefined) ??
+      (feeHeadCode
+        ? feeMongoPaidByHeadYear.get(`code:${feeHeadCode.toUpperCase()}::${year}`)
+        : undefined) ??
+      0;
+
+    const extras = builderPaymentExtraHeads
+      .filter((head) => {
+        if (existingIds.has(head.id)) return false;
+        if (head.code && existingCodes.has(head.code.toUpperCase())) return false;
+        return true;
+      })
+      .map((head) => ({
+        structureId: `extra-collect-${head.id}-${builderPaymentYear}`,
+        feeHeadId: head.id,
+        feeHeadName: head.name,
+        feeHeadCode: head.code,
+        studentYear: builderPaymentYear,
+        semester: null as number | string | null,
+        catalogAmount: 0,
+        // Open amount — user enters what to collect; no catalog payable ceiling.
+        payableAmount: Number.POSITIVE_INFINITY,
+        adjustmentAmount: null as number | null,
+        paidAmount: resolvePaid(head.id, head.code, builderPaymentYear),
+        concessionType: 'ADHOC_FEE' as const,
+        isAdhoc: true as const,
+      }));
+
+    return [...base.map((row) => ({ ...row, isAdhoc: false as const })), ...extras];
+  }, [
+    builderPaymentRows,
+    builderPaymentYear,
+    builderPaymentExtraHeads,
+    feeMongoPaidByHeadYear,
+  ]);
+
+  const collectFeeHeadOptions = useMemo(() => {
+    const shownIds = new Set(
+      builderPaymentYearRows.map((row) => String(row.feeHeadId || '').trim()).filter(Boolean)
+    );
+    const shownCodes = new Set(
+      builderPaymentYearRows
+        .map((row) => String(row.feeHeadCode || '').trim().toUpperCase())
+        .filter(Boolean)
+    );
+    return collectMasterFeeHeads.filter((head) => {
+      if (shownIds.has(head.id)) return false;
+      if (head.code && shownCodes.has(head.code.toUpperCase())) return false;
+      return true;
+    });
+  }, [collectMasterFeeHeads, builderPaymentYearRows]);
+
+  const builderPaymentSelectedTotal = useMemo(
+    () => builderPaymentTargets.reduce((sum, target) => sum + (Number(target.amount) || 0), 0),
+    [builderPaymentTargets]
+  );
+
+  const handleAddCollectFeeHead = () => {
+    if (!selectedCollectFeeHeadId) return;
+    const targetHead = collectMasterFeeHeads.find((h) => h.id === selectedCollectFeeHeadId);
+    if (!targetHead) return;
+
+    const alreadyInTable = builderPaymentYearRows.some(
+      (row) =>
+        String(row.feeHeadId) === targetHead.id ||
+        (targetHead.code &&
+          String(row.feeHeadCode || '')
+            .trim()
+            .toUpperCase() === targetHead.code.toUpperCase())
+    );
+    if (alreadyInTable || builderPaymentExtraHeads.some((h) => h.id === targetHead.id)) {
+      showToast.error('This fee head is already listed for collection.');
+      return;
+    }
+
+    setBuilderPaymentExtraHeads((prev) =>
+      prev.some((h) => h.id === targetHead.id) ? prev : [...prev, targetHead]
+    );
+    setSelectedCollectFeeHeadId('');
+  };
+
+  const handleAddBuilderFeeHead = () => {
+    if (!selectedBuilderFeeHeadId) return;
+    const targetHead = allUniqueFeeHeads.find((h) => h.id === selectedBuilderFeeHeadId);
+    if (!targetHead) return;
+
+    if (currentBuilderHeads.some((h) => h.id === targetHead.id)) {
+      showToast.error('This fee head is already added to the builder.');
+      return;
+    }
+
+    setBuilderAddedHeadIds((prev) =>
+      prev.includes(targetHead.id) ? prev : [...prev, targetHead.id]
+    );
+    setBuilderHeadConcessionTypes((prev) =>
+      prev[targetHead.id] ? prev : { ...prev, [targetHead.id]: 'REVISED_FEE' }
+    );
+    markBuilderConcessionsDirty();
+    setSelectedBuilderFeeHeadId('');
+  };
+
+  const openBuilderPaymentDialog = (target?: {
+    structureId: string;
+    feeHeadId: string;
+    feeHeadName: string;
+    feeHeadCode: string;
+    studentYear: number;
+    semester?: number | string | null;
+    amount: string;
+  }) => {
+    if (!canWritePayments) {
+      showToast.error('You have read-only access to payments');
+      return;
+    }
+    if (!joiningRecord?._id) {
+      showToast.error('Save the joining form before recording payments');
+      return;
+    }
+    if (!hasManagedCourseAndBranch) {
+      showToast.error(
+        'Select college, quota, managed course, and managed branch before collecting payment.'
+      );
+      return;
+    }
+    // Admission number is created on Submit Fee Request with revised amounts.
+    setIsBuilderPaymentDialogOpen(true);
+    setSelectedCollectFeeHeadId('');
+    setBuilderPaymentExtraHeads([]);
+    if (target) {
+      setBuilderPaymentYear(target.studentYear);
+      setBuilderPaymentTargets([target]);
+      setBuilderPaymentForm({
+        amount: target.amount,
+        paymentMode: 'Cash',
+        receiptNumber: '',
+        remarks: target.feeHeadName || target.feeHeadCode || 'Fee payment',
+        isProcessing: false,
+        paymentConfigId: '',
+      });
+    } else {
+      setBuilderPaymentYear(studentYearOfStudy > 0 ? studentYearOfStudy : 1);
+      setBuilderPaymentTargets([]);
+      setBuilderPaymentForm({
+        amount: '',
+        paymentMode: 'Cash',
+        receiptNumber: '',
+        remarks: '',
+        isProcessing: false,
+        paymentConfigId: '',
+      });
+    }
+  };
+
+  const closeBuilderPaymentDialog = () => {
+    if (builderPaymentForm.isProcessing) return;
+    setIsBuilderPaymentDialogOpen(false);
+    setBuilderPaymentTargets([]);
+    setBuilderPaymentExtraHeads([]);
+    setSelectedCollectFeeHeadId('');
+    setRazorpayQrData(null);
+    setQrError(null);
+  };
+
+  const handleGenerateRazorpayQr = async () => {
+    if (!joiningRecord?._id) return;
+    const joiningId = joiningRecord._id;
+    const admissionId = admissionRecord?._id;
+    
+    if (builderPaymentTargets.length === 0) {
+      showToast.error('Select at least one fee head');
+      return;
+    }
+    const payableTargets = builderPaymentTargets.filter(
+      (target) => Number.isFinite(Number(target.amount)) && Number(target.amount) > 0
+    );
+    if (payableTargets.length !== builderPaymentTargets.length) {
+      showToast.error('Selected fee heads must have a payable amount');
+      return;
+    }
+
+    const payloadTargets = payableTargets.map((t) => ({
+      feeHeadId: t.feeHeadId,
+      feeHeadName: t.feeHeadName,
+      feeHeadCode: t.feeHeadCode,
+      amount: Number(t.amount),
+      studentYear: t.studentYear,
+      semester: t.semester,
+    }));
+
+    setIsQrGenerating(true);
+    setQrError(null);
+
+    try {
+      const primaryTarget = payableTargets[0];
+      const res = await paymentAPI.generateRazorpayQR({
+        joiningId,
+        admissionId,
+        amount: builderPaymentSelectedTotal,
+        feeHeadId: primaryTarget.feeHeadId,
+        feeHeadName: primaryTarget.feeHeadName,
+        feeHeadCode: primaryTarget.feeHeadCode,
+        studentYear: primaryTarget.studentYear,
+        semester: primaryTarget.semester,
+        targets: payloadTargets,
+      });
+
+      const orderResult = res?.data || res;
+      if (!orderResult?.orderId) {
+        throw new Error('Failed to create Razorpay Order');
+      }
+
+      if (!(window as any).Razorpay) {
+        throw new Error('Razorpay Checkout SDK is still loading. Please wait.');
+      }
+
+      const options = {
+        key: orderResult.key,
+        amount: orderResult.amount,
+        currency: orderResult.currency,
+        name: "Pydah Group",
+        description: `Admission Fee Payment - Year ${builderPaymentYear}`,
+        order_id: orderResult.orderId,
+        handler: async function (response: any) {
+          setIsQrVerifying(true);
+          try {
+            await paymentAPI.verifyRazorpayQR({
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_signature: response.razorpay_signature,
+            });
+            showToast.success('UPI/Online Payment collected and verified successfully!');
+            setIsBuilderPaymentDialogOpen(false);
+            setBuilderPaymentTargets([]);
+            void queryClient.invalidateQueries({ queryKey: ['fee-mongo-transactions'] });
+            setBuilderPaymentForm((prev) => ({
+              ...prev,
+              amount: '',
+              receiptNumber: '',
+              remarks: '',
+              isProcessing: false,
+            }));
+          } catch (err: any) {
+            console.error('Verification error:', err);
+            const apiErr = err.response?.data?.message || err.message || 'Signature verification failed';
+            showToast.error(apiErr);
+          } finally {
+            setIsQrVerifying(false);
+          }
+        },
+        prefill: {
+          name: orderResult.studentName,
+          contact: orderResult.studentPhone,
+        },
+        theme: {
+          color: "#4f46e5"
+        }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err) {
+      console.error('Error generating Order:', err);
+      const apiErr = err as { response?: { data?: { message?: string } }; message?: string };
+      const errMsg = apiErr.response?.data?.message || apiErr.message || 'Failed to start payment checkout';
+      setQrError(errMsg);
+      showToast.error(errMsg);
+    } finally {
+      setIsQrGenerating(false);
+    }
+  };
+
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    document.body.appendChild(script);
+    return () => {
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+    };
+  }, []);
+
+  const handleBuilderPaymentSubmit = async () => {
+    if (!joiningRecord?._id) return;
+    const joiningId = joiningRecord._id;
+    const admissionId = admissionRecord?._id;
+    if (builderPaymentTargets.length === 0) {
+      showToast.error('Select at least one fee head');
+      return;
+    }
+    const payableTargets = builderPaymentTargets.filter(
+      (target) => Number.isFinite(Number(target.amount)) && Number(target.amount) > 0
+    );
+    if (payableTargets.length !== builderPaymentTargets.length) {
+      showToast.error('Selected fee heads must have a payable amount');
+      return;
+    }
+    setBuilderPaymentForm((prev) => ({ ...prev, isProcessing: true }));
+    try {
+      const paymentResults = await Promise.all(
+        payableTargets.map((target) =>
+          paymentAPI.recordFeeManagementTransaction({
+            joiningId,
+            admissionId,
+            feeHead: target.feeHeadId,
+            feeHeadName: target.feeHeadName,
+            feeHeadCode: target.feeHeadCode,
+            amount: Number(target.amount),
+            paymentMode: builderPaymentForm.paymentMode,
+            receiptNumber: builderPaymentForm.receiptNumber.trim() || undefined,
+            remarks:
+              builderPaymentForm.remarks.trim() ||
+              target.feeHeadName ||
+              target.feeHeadCode ||
+              'Fee payment',
+            semester: target.semester ?? null,
+            studentYear: target.studentYear,
+            paymentConfigId: builderPaymentForm.paymentConfigId || undefined,
+          })
+        )
+      );
+      const recordedAdmissionNumber = paymentResults
+        .map((res: any) => String(res?.data?.admissionNumber || res?.admissionNumber || '').trim())
+        .find(Boolean);
+      showToast.success(
+        recordedAdmissionNumber
+          ? `Fee payment recorded for admission ${recordedAdmissionNumber}`
+          : payableTargets.length === 1
+            ? 'Fee payment transaction recorded'
+            : `${payableTargets.length} fee payment transactions recorded`
+      );
+      // Switch to transactions tab so the user can see the recorded entry
+      // instead of closing the dialog
+      setBuilderPaymentTab('transactions');
+      setBuilderPaymentTargets([]);
+      void queryClient.invalidateQueries({ queryKey: ['fee-mongo-transactions'] });
+      void queryClient.invalidateQueries({ queryKey: ['admission'] });
+      void queryClient.invalidateQueries({ queryKey: ['joining'] });
+      void refetch();
+      void refetchAdmission();
+      setBuilderPaymentForm((prev) => ({
+        ...prev,
+        amount: '',
+        receiptNumber: '',
+        remarks: '',
+        isProcessing: false,
+        paymentConfigId: '',
+      }));
+    } catch (error) {
+      const apiError = error as { response?: { data?: { message?: string } }; message?: string };
+      showToast.error(apiError.response?.data?.message || apiError.message || 'Failed to record fee payment');
+      setBuilderPaymentForm((prev) => ({ ...prev, isProcessing: false }));
+    }
+  };
+
+  const handleSaveAdmissionRecord = async () => {
+    if (!canEditApprovedAdmission) {
+      showToast.error('You do not have permission to edit admissions on the joining desk');
+      return;
+    }
+    if (!admissionRecord?._id) {
+      showToast.error(
+        'Admission record is still loading. Reload the page, then change the managed branch and click Update Admission (not Save Draft).'
+      );
+      return;
+    }
+    if (!hasManagedCourseAndBranch) {
+      showToast.error(
+        'Select college, quota, managed course, and managed branch under Course & Quota before updating the admission record.'
+      );
+      return;
+    }
+    if (!selectedCasteCategoryId) {
+      showToast.error(
+        'Select a reservation category under Course & Quota before updating the admission record.'
+      );
+      return;
+    }
+    if (formState.studentInfo.isScholarApplicable === undefined) {
+      showToast.error('Select whether Scholar is Applicable before updating the admission record.');
+      return;
+    }
+
+    const canSyncExternalSystems =
+      status === 'approved' &&
+      workflowJoiningId &&
+      !pendingFeeRequest;
+
+    const shouldSyncFeesDirectly = canSyncExternalSystems && !hasRevisedFeeLines;
+
+    try {
+      if (canSyncExternalSystems) {
+        const strippedExtras = stripJoiningRedundantRegistrationExtras({ ...registrationExtras });
+        await joiningAPI.patchStepTwo(workflowJoiningId, {
+          registrationFormData: {
+            ...strippedExtras,
+            ...joiningRegistrationPatch,
+            ...portraitRegistrationPatch,
+          },
+          ...(shouldSyncFeesDirectly
+            ? {
+                studentFeeDetails: {
+                  batch: studentFeeDetails.batch || feeConfigurationBatch,
+                  lines: filterPersistableBuilderConcessionLines(studentFeeDetails.lines || []),
+                },
+              }
+            : {}),
+        });
+      }
+      updateAdmissionMutation.mutate(payloadForSave);
+    } catch (error: unknown) {
+      const message =
+        error &&
+        typeof error === 'object' &&
+        'response' in error &&
+        error.response &&
+        typeof error.response === 'object' &&
+        'data' in error.response &&
+        error.response.data &&
+        typeof error.response.data === 'object' &&
+        'message' in error.response.data
+          ? String((error.response.data as { message?: string }).message)
+          : 'Failed to save fee configuration before updating admission';
+      showToast.error(message);
+    }
+  };
+
+  const saveStepFourMutation = useMutation({
+    mutationFn: async () => {
+      if (!workflowJoiningId) {
+        throw new Error('Save the joining form first');
+      }
+      if (admissionRecord?._id && admissionRemarks !== undefined) {
+        try {
+          await admissionAPI.patchRemarksById(String(admissionRecord._id), admissionRemarks);
+          setAdmissionRecord((prev) => (prev ? { ...prev, remarks: admissionRemarks } : null));
+        } catch (e) {
+          console.warn('Failed to patch admission remarks on step four save:', e);
+        }
+      }
+      return joiningAPI.patchStepTwo(workflowJoiningId, {
+        registrationFormData: joiningRegistrationPatch,
+        transportDetails,
+        studentFeeDetails: {
+          batch: studentFeeDetails.batch || feeConfigurationBatch,
+          lines: filterEmptyFeeHeads(mapRevisedFeeLinesWithOth1(studentFeeDetails.lines || [])),
+        },
+      });
+    },
+    onSuccess: async () => {
+      builderConcessionsDirtyRef.current = false;
+      builderConcessionsHydratedForRef.current = null;
+      setIsEditingRemarks(false);
+      showToast.success(
+        'Fee configuration and admission remarks saved successfully'
+      );
+      await refetch();
+      if (isAccommodationChoiceLocked(transportDetails)) {
+        await refreshAccommodationQueries();
+      }
+      if (admissionRecord?._id) {
+        await queryClient.invalidateQueries({ queryKey: ['admission', admissionRecord._id] });
+      }
+      if (admissionNumberDisplay) {
+        await queryClient.invalidateQueries({ queryKey: ['overall-concessions', admissionNumberDisplay] });
+      }
+    },
+    onError: (error: { response?: { data?: { message?: string } } }) => {
+      showToast.error(error.response?.data?.message || 'Failed to save fee configuration');
+    },
+  });
+
+  const submitFeeRequestMutation = useMutation({
+    mutationFn: async () => {
+      const joiningId = joiningRecord?._id || workflowJoiningId;
+      if (!joiningId) {
+        throw new Error('Save the joining form first');
+      }
+      if (!allBuilderHeadsHaveAmounts) {
+        const missingLabel = builderHeadsCompleteness.missing
+          .map((m) => `${m.headName} (Year ${m.year})`)
+          .join(', ');
+        throw new Error(
+          `Enter amounts for all years on at least one fee head before generating the admission number` +
+            (missingLabel ? ` — still missing: ${missingLabel}` : '')
+        );
+      }
+      if (admissionRecord?._id && admissionRemarks !== undefined) {
+        try {
+          await admissionAPI.patchRemarksById(String(admissionRecord._id), admissionRemarks);
+          setAdmissionRecord((prev) => (prev ? { ...prev, remarks: admissionRemarks } : null));
+        } catch (e) {
+          console.warn('Failed to patch admission remarks on fee request submit:', e);
+        }
+      }
+      return feeRequestAPI.submit({
+        joiningId,
+        remarks: admissionRemarks,
+        admissionRemarks,
+        studentFeeDetails: {
+          batch: studentFeeDetails.batch || feeConfigurationBatch,
+          lines: filterEmptyFeeHeads(mapRevisedFeeLinesWithOth1(studentFeeDetails.lines || [])),
+        },
+        registrationFormData: {
+          transport_details: transportDetails,
+        },
+        builderFeeHeadCheck: {
+          heads: currentBuilderHeads.map((h) => ({
+            id: h.id,
+            name: h.name,
+            code: h.code,
+          })),
+          years: feeYearColumns,
+        },
+      });
+    },
+    onSuccess: async (res: any) => {
+      builderConcessionsDirtyRef.current = false;
+      builderConcessionsHydratedForRef.current = null;
+      setIsEditingRemarks(false);
+      const mintedAdmissionNumber = String(
+        res?.data?.admissionNumber ||
+          res?.data?.data?.admissionNumber ||
+          res?.admissionNumber ||
+          ''
+      ).trim();
+      const hadAdmissionNumberBefore = Boolean(admissionNumberDisplay);
+      if (mintedAdmissionNumber) {
+        setMeta((prev) => ({
+          ...prev,
+          admissionNumber: mintedAdmissionNumber,
+        }));
+        setStatus((prev) => (prev === 'draft' || prev === 'pending_approval' ? 'approved' : prev));
+        if (!hadAdmissionNumberBefore) {
+          setAdmissionNumberDialog(mintedAdmissionNumber);
+        }
+      }
+      showToast.success(
+        mintedAdmissionNumber && !hadAdmissionNumberBefore
+          ? 'Fee request submitted — admission number generated'
+          : 'Fee request submitted for approval'
+      );
+      await refetch();
+      await refetchAdmission();
+      await refreshAccommodationQueries();
+      await queryClient.invalidateQueries({ queryKey: ['fee-request-pending', joiningRecord?._id] });
+      await queryClient.invalidateQueries({ queryKey: ['admission'] });
+      await queryClient.invalidateQueries({ queryKey: ['joining'] });
+      const concessionKey = mintedAdmissionNumber || admissionNumberDisplay;
+      if (concessionKey) {
+        await queryClient.invalidateQueries({ queryKey: ['overall-concessions', concessionKey] });
+      }
+    },
+    onError: (error: { message?: string; response?: { data?: { message?: string } } }) => {
+      showToast.error(
+        error.response?.data?.message ||
+          error.message ||
+          'Failed to submit fee request'
+      );
+    },
+  });
+
+  const saveStepTwoMutation = useMutation({
+    mutationFn: async () => {
+      if (!workflowJoiningId) {
+        throw new Error('Save the joining form first');
+      }
+      const stripped = stripJoiningRedundantRegistrationExtras({ ...registrationExtras });
+      const registrationFormData =
+        derivedCertificationStatus !== null
+          ? {
+              ...stripped,
+              certification_status: derivedCertificationStatus,
+              certificates_status: derivedCertificationStatus,
+            }
+          : stripped;
+      if (status === 'approved') {
+        await joiningAPI.patchStepTwo(workflowJoiningId, {
+          registrationFormData: {
+            ...registrationFormData,
+            ...joiningRegistrationPatch,
+          },
+          transportDetails,
+          studentFeeDetails: {
+            batch: studentFeeDetails.batch,
+            lines: filterPersistableBuilderConcessionLines(mapRevisedFeeLinesWithOth1(studentFeeDetails.lines || [])),
+          },
+          documents: serializeJoiningDocumentsForApi(formState.documents),
+        });
+        if (admissionRecord?._id) {
+          await admissionAPI.patchReferenceById(String(admissionRecord._id), reference1.trim());
+        }
+        return null;
+      }
+      return joiningAPI.saveDraft(leadId as string, {
+        ...payloadForSave,
+        transportDetails,
+        ...(joiningRecord?._id ? { _id: joiningRecord._id } : {}),
+      });
+    },
+    onSuccess: async () => {
+      const savedAccommodation =
+        applicationWizardStep === 3 && isAccommodationChoiceLocked(transportDetails);
+      if (savedAccommodation) {
+        setStep3AccommodationUiLocked(true);
+      }
+      showToast.success(
+        savedAccommodation
+          ? 'Accommodation request saved successfully'
+          : status === 'approved'
+            ? 'Important documents saved'
+            : 'Step 2 documents saved as draft'
+      );
+      const { data: refetchedJoining } = await refetch();
+      if (savedAccommodation) {
+        await refreshAccommodationQueries();
+      }
+      if (status === 'approved') {
+        await queryClient.invalidateQueries({ queryKey: ['admission', leadId, status] });
+        if (admissionRecord?._id) {
+          await queryClient.invalidateQueries({ queryKey: ['admission', admissionRecord._id] });
+        }
+        const { data: refetchedAdmission } = await refetchAdmission();
+        const freshAdmission = refetchedAdmission?.data?.admission as Admission | undefined;
+        if (freshAdmission) {
+          applyAdmissionRecordToWorkspace(freshAdmission);
+        } else if (refetchedJoining?.data?.joining) {
+          setFormState((prev) => ({
+            ...prev,
+            documents: normalizeJoiningDocumentsFromApi(refetchedJoining.data.joining.documents),
+          }));
+        }
+      }
+    },
+    onError: (error: { response?: { data?: { message?: string } } }) => {
+      showToast.error(error.response?.data?.message || 'Failed to save documents');
+    },
+  });
+
+  useEffect(() => {
+    if (isPublicEdit) {
+      return () => clearHeaderContent();
+    }
+    if (typeof window !== 'undefined') {
+      const scriptId = 'cashfree-sdk-v3';
+      if (!document.getElementById(scriptId)) {
+        const script = document.createElement('script');
+        script.id = scriptId;
+        script.async = true;
+        script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
+        document.body.appendChild(script);
+      }
+    }
+
+    const workflowAdmissionId = admissionRecord?._id;
+    const headerName =
+      String(
+        lead?.name ||
+          formState.studentInfo?.name ||
+          joiningRecord?.studentInfo?.name ||
+          (joiningRecord as any)?.studentName ||
+          ''
+      ).trim() || 'Application';
+    const headerEnquiry = String(lead?.enquiryNumber || '').trim();
+    const headerLeadId = String(lead?._id || lead?.id || joiningRecord?.leadId || effectiveAdminLeadId || '').trim();
+
+    // Always mount Step 1–4 + actions — do not wait on `lead` (Confirmed Apply can load joining first).
+    setHeaderContent(
+      <div className="flex w-full min-w-0 flex-col gap-1.5">
+        <h1 className="truncate text-lg font-bold tracking-tight text-slate-950 dark:text-white sm:text-xl">
+          Joining &amp; Admission Workspace
+        </h1>
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800 dark:text-slate-100 sm:text-base">
+            <span className="text-slate-950 dark:text-white">{headerName}</span>
+            {headerEnquiry ? (
+              <span className="font-medium text-slate-700 dark:text-slate-200">
+                {` · Enquiry #${headerEnquiry}`}
+              </span>
+            ) : null}
+            {courseBranchSubtitle ? (
+              <span className="font-medium text-slate-700 dark:text-slate-200">
+                {` · ${courseBranchSubtitle}`}
+              </span>
+            ) : null}
+          </p>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <AdmissionWorkflowStepButtons
+              activeStep={useWizard ? applicationWizardStep : status === 'approved' ? 4 : 1}
+              surface="joining-edit"
+              joiningId={workflowJoiningId}
+              admissionId={workflowAdmissionId}
+              joiningStatus={status}
+              onJoiningWizardStepSelect={useWizard ? handleJoiningWizardStepSelect : undefined}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(
+                JOINING_ACTION_BTN_CLASS,
+                '!bg-white !text-slate-900 !border-2 !border-slate-500 hover:!bg-slate-100 hover:!text-slate-900'
+              )}
+              onClick={navigateBackToJoiningList}
+            >
+              Back to Joining Desk
+            </Button>
+            {headerLeadId ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                className={cn(
+                  JOINING_ACTION_BTN_CLASS,
+                  '!bg-slate-100 !text-slate-900 !border-2 !border-slate-400 hover:!bg-slate-200'
+                )}
+                onClick={() => router.push(`/superadmin/leads/${headerLeadId}`)}
+              >
+                View Lead
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+
+    return () => clearHeaderContent();
+  }, [
+    isPublicEdit,
+    lead,
+    formState.studentInfo?.name,
+    joiningRecord?.studentInfo?.name,
+    (joiningRecord as any)?.studentName,
+    joiningRecord?.leadId,
+    effectiveAdminLeadId,
+    router,
+    navigateBackToJoiningList,
+    setHeaderContent,
+    clearHeaderContent,
+    status,
+    workflowJoiningId,
+    admissionRecord?._id,
+    applicationWizardStep,
+    useWizard,
+    handleJoiningWizardStepSelect,
+    courseBranchSubtitle,
+  ]);
+
+  if (!isPublicEdit && !canAccessJoiningModule) {
+    return null;
+  }
+
+  if (!isPublicEdit && !leadId) {
+    return (
+      <div className="p-6">
+        <p className="text-sm text-red-500">Invalid URL. Lead identifier is missing.</p>
+      </div>
+    );
+  }
+
+  const publicExpiresAt = (publicBootstrapQuery.data?.data as { expiresAt?: string } | undefined)?.expiresAt;
+
+  if (
+    isPublicEdit &&
+    (publicSubmitted || (isSelfRegistrationPublic && status !== 'draft'))
+  ) {
+    return (
+      <div className="mx-auto max-w-lg px-4 py-20 text-center">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-6 py-10 dark:border-emerald-900/50 dark:bg-emerald-950/40">
+          {isSelfRegistrationPublic ? (
+            <>
+              <h1 className="text-xl font-semibold text-emerald-900 dark:text-emerald-100">Thank you</h1>
+              <p className="mt-3 text-sm leading-relaxed text-emerald-800 dark:text-emerald-200">
+                Your application has been submitted successfully. Our admissions team will review it and contact you
+                soon. You may close this window.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-xl font-semibold text-emerald-900 dark:text-emerald-100">Submitted for approval</h1>
+              <p className="mt-3 text-sm text-emerald-800 dark:text-emerald-200">
+                Your joining form has been sent to the admissions team. It will appear in their{' '}
+                <strong>Joining Pipeline</strong> under <strong>Pending Approvals</strong>. You can close this window.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const statusBadgeClass =
+    status === 'approved'
+      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-200'
+      : status === 'pending_approval'
+        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-200'
+        : 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-200';
+
+  const statusLabel = status.replace('_', ' ');
+
+  const stepOneCourseHint =
+    !isPublicEdit && !hasManagedCourseAndBranch && (status === 'draft' || status === 'pending_approval')
+      ? 'Complete course, college, branch, and quota before saving or collecting fees.'
+      : undefined;
+
+  const canSaveJoiningDraft =
+    canWriteJoining &&
+    (isPublicEdit ? status === 'draft' : status === 'draft' || status === 'pending_approval');
+
+  const renderWizardStepFooter = (panelStep: AdmissionWorkflowStep) => {
+    // Public / QR: Step 1 only — Save Draft (no submit for approval).
+    if (isPublicEdit) {
+      if (panelStep !== 1 || status !== 'draft') return null;
+      return (
+        <WorkflowStickyActionBar
+          id="joining-step-one-actions"
+          stepLabel="Save application"
+          className="-mx-3 border-x-0 pb-[max(1rem,env(safe-area-inset-bottom))] sm:mx-0"
+        >
+          <Button
+            variant="primary"
+            size="sm"
+            className="w-full sm:w-auto"
+            disabled={!canSaveJoiningDraft || isSaving}
+            onClick={() => saveDraftMutation.mutate()}
+          >
+            {isSaving ? 'Saving…' : 'Save Draft'}
+          </Button>
+        </WorkflowStickyActionBar>
+      );
+    }
+
+    if (!useWizard || applicationWizardStep !== panelStep) return null;
+
+    const stickyClass = isPublicEdit
+      ? '-mx-3 border-x-0 pb-[max(1rem,env(safe-area-inset-bottom))] sm:mx-0'
+      : undefined;
+
+    if (panelStep === 3) {
+      const canProceedStep3 = canProceedFromAccommodationStep(transportDetails);
+      return (
+        <WorkflowStickyActionBar
+          id="joining-wizard-step-3-actions"
+          className={stickyClass}
+        >
+          <WorkflowPreviousStepButton onClick={() => advanceApplicationWizard(2)} />
+          {canWriteJoining &&
+          !hasExistingTransportRequest &&
+          !hasExistingHostelRequest &&
+          !step3AccommodationUiLocked ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={saveStepTwoMutation.isPending || !canProceedStep3}
+              onClick={() => saveStepTwoMutation.mutate()}
+            >
+              {saveStepTwoMutation.isPending ? 'Saving…' : 'Save request'}
+            </Button>
+          ) : null}
+          <WorkflowNextStepButton
+            fromStep={3}
+            surface={workflowSurface}
+            joiningId={workflowJoiningId}
+            admissionId={admissionRecord?._id}
+            onWizardAdvance={() => advanceApplicationWizard(4)}
+            disabled={!canProceedStep3}
+            disabledTitle="Complete bus route + stage, hostel room, or None before continuing to Step 4."
+          />
+        </WorkflowStickyActionBar>
+      );
+    }
+
+    if (panelStep === 4) {
+      return (
+        <WorkflowStickyActionBar
+          id="joining-wizard-step-4-actions"
+          className={stickyClass}
+        >
+          <WorkflowPreviousStepButton onClick={() => advanceApplicationWizard(3)} />
+          {canWriteJoining ? (
+            <Button
+              variant="primary"
+              size="sm"
+              className={JOINING_ACTION_BTN_CLASS}
+              disabled={saveStepFourMutation.isPending || isBusy || !workflowJoiningId}
+              onClick={() => saveStepFourMutation.mutate()}
+            >
+              {saveStepFourMutation.isPending ? 'Saving…' : 'Save fee configuration'}
+            </Button>
+          ) : null}
+        </WorkflowStickyActionBar>
+      );
+    }
+
+    return (
+      <WorkflowStickyActionBar
+        id={panelStep === 1 ? 'joining-step-one-actions' : `joining-wizard-step-${panelStep}-actions`}
+        stepLabel={panelStep === 1 ? 'Step 1 actions' : undefined}
+        hint={
+          panelStep === 1
+            ? stepOneCourseHint || stepOneNextBlockedHint
+            : undefined
+        }
+        className={stickyClass}
+      >
+        {panelStep > 1 ? (
+          <WorkflowPreviousStepButton
+            onClick={() => advanceApplicationWizard((panelStep - 1) as AdmissionWorkflowStep)}
+          />
+        ) : null}
+        {panelStep === 1 ? (
+          admissionNumberDisplay ? (
+            <PrintableAdmitCard
+              courseId={admitCardPrintStudent.courseId}
+              student={admitCardPrintStudent}
+              printButtonLabel="Print acknowledgement card"
+              className={JOINING_ACTION_BTN_CLASS}
+              disabled={!hasManagedCourseAndBranch}
+              disabledTitle="Select college, course, and branch before printing the acknowledgement card"
+            />
+          ) : null
+        ) : null}
+        {panelStep === 1 && canSaveJoiningDraft ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            className={JOINING_ACTION_BTN_CLASS}
+            disabled={isSaving}
+            onClick={() => {
+              if (!canWriteJoining) {
+                showToast.error('You have read-only access to the joining desk');
+                return;
+              }
+              saveDraftMutation.mutate();
+            }}
+          >
+            {isSaving ? 'Saving…' : 'Save Draft'}
+          </Button>
+        ) : null}
+        {panelStep === 1 && isAdmissionEditable ? (
+          <Button
+            variant="primary"
+            size="sm"
+            className={JOINING_ACTION_BTN_CLASS}
+            disabled={
+              isUpdatingAdmission ||
+              isBusy ||
+              !canWriteJoining ||
+              !hasManagedCourseAndBranch ||
+              !admissionRecord?._id
+            }
+            onClick={handleSaveAdmissionRecord}
+            title={
+              !admissionRecord?._id
+                ? 'Waiting for admission record to load…'
+                : hasManagedCourseAndBranch
+                  ? undefined
+                  : 'Select college, quota, managed course, and managed branch in Course & Quota before saving.'
+            }
+          >
+            {isUpdatingAdmission ? 'Updating…' : 'Update Admission'}
+          </Button>
+        ) : null}
+        {panelStep === 2 && canWriteJoining && !isPublicEdit && status !== 'approved' ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            className={JOINING_ACTION_BTN_CLASS}
+            disabled={saveStepTwoMutation.isPending}
+            onClick={() => saveStepTwoMutation.mutate()}
+          >
+            {saveStepTwoMutation.isPending ? 'Saving…' : 'Save Draft'}
+          </Button>
+        ) : null}
+        <WorkflowNextStepButton
+          fromStep={panelStep}
+          surface={workflowSurface}
+          joiningId={workflowJoiningId}
+          admissionId={admissionRecord?._id}
+          onWizardAdvance={() => advanceApplicationWizard((panelStep + 1) as AdmissionWorkflowStep)}
+          disabled={panelStep === 1 && !canProceedFromWizardStep1}
+          disabledTitle={stepOneNextBlockedHint}
+        />
+      </WorkflowStickyActionBar>
+    );
+  };
+
+  const joiningStepHeaderActions = (
+    <>
+      {!isPublicEdit && (publicLinkRouteKey || admissionRecord?._id) ? (
+        <Link href={admissionRecord?._id ? `/superadmin/admission/${admissionRecord._id}/detail` : `/superadmin/joining/${publicLinkRouteKey}/detail`}>
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn('group inline-flex items-center gap-1.5', JOINING_ACTION_BTN_CLASS)}
+          >
+            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+            View Details
+          </Button>
+        </Link>
+      ) : null}
+      {status === 'draft' && canWriteJoining && !isPublicEdit ? (
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => setIsEditModalOpen(true)}
+          className={cn('group inline-flex items-center gap-1.5', JOINING_ACTION_BTN_CLASS)}
+        >
+          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          </svg>
+          Edit Form
+        </Button>
+      ) : null}
+      {status === 'draft' && canWriteJoining && !isPublicEdit && (isNewJoining || !!publicLinkRouteKey) ? (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={publicLinkBusy}
+          onClick={() => void handleCopyPublicLink()}
+          className={cn('inline-flex items-center gap-1.5', JOINING_ACTION_BTN_CLASS)}
+        >
+          {publicLinkBusy ? 'Preparing link…' : 'Copy public link (5 min)'}
+        </Button>
+      ) : null}
+      {isAdmissionEditable ? (
+        <>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={
+              isUpdatingAdmission ||
+              isBusy ||
+              !canWriteJoining ||
+              !hasManagedCourseAndBranch ||
+              !admissionRecord?._id
+            }
+            onClick={handleSaveAdmissionRecord}
+            className={cn('group inline-flex items-center gap-1.5', JOINING_ACTION_BTN_CLASS)}
+            title={
+              !admissionRecord?._id
+                ? 'Waiting for admission record to load…'
+                : hasManagedCourseAndBranch
+                  ? undefined
+                  : 'Select college, quota, managed course, and managed branch in Course & Quota before saving.'
+            }
+          >
+            {isUpdatingAdmission ? 'Updating…' : 'Update Admission'}
+            <svg
+              className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className={JOINING_ACTION_BTN_CLASS}
+            onClick={navigateBackToJoiningList}
+          >
+            Joining List
+          </Button>
+        </>
+      ) : null}
+    </>
+  );
+
+  return (
+    <div
+      className={`w-full space-y-4 pb-20 pt-1 sm:space-y-5 sm:pb-16 sm:pt-2 ${
+        isPublicEdit ? 'mx-auto max-w-2xl px-3 sm:px-4' : 'px-0'
+      }`}
+    >
+      {joiningLoadError ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950 dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-100">
+          <p className="font-semibold">Could not load joining / lead data</p>
+          <p className="mt-1 text-xs leading-relaxed">
+            {joiningLoadError.response?.data?.message ||
+              joiningLoadError.message ||
+              'The draft could not be created or loaded. Try Apply again, or contact support if this continues.'}
+          </p>
+          <div className="mt-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={JOINING_ACTION_BTN_CLASS}
+              onClick={() => void refetch()}
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {isPublicEdit && usePublicWizard ? (
+        <AdmissionWorkflowStepBanner step={applicationWizardStep} />
+      ) : null}
+      {!isPublicEdit && status === 'draft' && !admissionNumberDisplay ? (
+        <div className="rounded-xl border border-blue-200 bg-blue-50/90 px-4 py-3 text-sm text-blue-950 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-100">
+          <p className="font-semibold">Draft application</p>
+          <p className="mt-1 text-xs leading-relaxed">
+            All steps are open. Use <span className="font-medium">Save Draft</span> anytime. The admission
+            number is generated when you submit a fee request with all years filled on at least one fee head on Step 4.
+          </p>
+        </div>
+      ) : null}
+      {isPublicEdit && publicExpiresAt && !isSelfRegistrationPublic && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          Secure public form · This link expires at{' '}
+          <strong>{new Date(publicExpiresAt).toLocaleString()}</strong> (5 minutes from when it was created).
+        </div>
+      )}
+      <div className="rounded-xl border border-white/60 bg-white/95 p-1 shadow-lg shadow-blue-100/20 backdrop-blur dark:border-slate-800 dark:bg-slate-900/70 dark:shadow-none sm:p-1.5">
+
+
+        {isBusy ? (
+          <div className="rounded-2xl border border-white/60 bg-white/90 p-12 text-center shadow-lg shadow-blue-100/20 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80 dark:shadow-none">
+            <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-blue-400 border-t-transparent" />
+            <p className="mt-4 text-sm font-medium text-slate-600 dark:text-slate-300">
+              {status === 'approved' ? 'Loading admission record…' : 'Loading joining details…'}
+            </p>
+          </div>
+        ) : (
+          <div id="joining-step-one" className="scroll-mt-24">
+            <div
+              id="joining-wizard-step-1"
+              className={cn(useWizard && applicationWizardStep !== 1 && 'hidden')}
+            >
+            <JoiningStepOneShell headerActions={joiningStepHeaderActions}>
+              <ApplicationInfoCard
+                title="Course, quota & qualifications"
+                icon={<GraduationCap className="h-4 w-4" aria-hidden />}
+                description="College, program, reservation, and academic intake"
+              >
+              {!hideJoiningStepOneRedundantIntro ? (
+                <>
+                  {(() => {
+                    const interestedFromLead = String(lead?.courseInterested || '').trim();
+                    const resolvedCourseName = selectedCourseSetting?.course?.name || '';
+                    const resolvedBranchName =
+                      selectedCourseSetting?.branches.find(
+                        (b) =>
+                          String(b._id ?? '').trim() ===
+                          String(formState.courseInfo.branchId ?? '').trim()
+                      )?.name || '';
+                    if (!interestedFromLead && !resolvedCourseName && !resolvedBranchName) {
+                      return null;
+                    }
+                    const needsMapping =
+                      interestedFromLead && !(resolvedCourseName || resolvedBranchName);
+                    return (
+                      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-700 dark:text-slate-300">
+                        {interestedFromLead ? (
+                          <span>
+                            Lead interest: <span className="font-semibold">{interestedFromLead}</span>
+                          </span>
+                        ) : null}
+                        {(resolvedCourseName || resolvedBranchName) ? (
+                          <span>
+                            Selected:{' '}
+                            <span className="font-semibold">
+                              {resolvedCourseName || '—'}
+                              {resolvedBranchName ? ` · ${resolvedBranchName}` : ''}
+                            </span>
+                          </span>
+                        ) : null}
+                        {needsMapping ? (
+                          <span className="text-amber-700 dark:text-amber-300">
+                            Map to course and branch below.
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
+                </>
+              ) : null}
+              {isLoadingCourseSettings ? (
+                <p
+                  className={cn(
+                    'text-sm text-slate-500 dark:text-slate-300',
+                    hideJoiningStepOneRedundantIntro ? 'mt-0' : 'mt-4'
+                  )}
+                >
+                  Loading course and branch directory…
+                </p>
+              ) : courseSettings.length > 0 ? (
+                <>
+                  {(() => {
+                    const currentLevel = formState.courseInfo.programLevel || '';
+                    const hasLevelOptions = programLevels.length > 0;
+                    const knownOption =
+                      currentLevel &&
+                      programLevels.some(
+                        (lvl) => String(lvl).trim().toLowerCase() === currentLevel.trim().toLowerCase()
+                      );
+                    return (
+                    <div
+                      className={cn(
+                        JOINING_FORM_GRID_CLASS,
+                        hideJoiningStepOneRedundantIntro ? 'mt-0' : 'mt-3'
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <label className={JOINING_FORM_LABEL_CLASS}>
+                          Program level
+                          <span className="ml-1 text-rose-600">*</span>
+                        </label>
+                        <select
+                          value={currentLevel}
+                          onChange={(event) => handleProgramLevelChange(event.target.value)}
+                          disabled={!hasLevelOptions}
+                          className={JOINING_FORM_CONTROL_CLASS}
+                        >
+                          <option value="">
+                            {hasLevelOptions ? 'Select program level' : 'No levels configured in secondary DB'}
+                          </option>
+                          {/* Preserve a pre-existing value (e.g. inferred from a managed course) even if absent from the fresh list. */}
+                          {currentLevel && !knownOption ? (
+                            <option value={currentLevel}>{currentLevel}</option>
+                          ) : null}
+                          {programLevels.map((lvl) => (
+                            <option key={lvl} value={lvl}>
+                              {lvl}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="min-w-0">
+                        <label className={JOINING_FORM_LABEL_CLASS}>
+                          Quota
+                          <span className="ml-1 text-rose-600">*</span>
+                        </label>
+                        <select
+                          value={formState.courseInfo.quota || ''}
+                          onChange={(event) => handleCourseFieldChange('quota', event.target.value)}
+                          className={JOINING_FORM_CONTROL_CLASS}
+                        >
+                          <option value="">Select quota</option>
+                          {quotaSelectOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="min-w-0">
+                        <label className={JOINING_FORM_LABEL_CLASS}>
+                          College
+                          <span className="ml-1 text-rose-600">*</span>
+                        </label>
+                        <select
+                          value={selectedCollegeId}
+                          onChange={(event) => handleCollegeSelect(event.target.value)}
+                          className={JOINING_FORM_CONTROL_CLASS}
+                        >
+                          <option value="">Select college</option>
+                          {visibleColleges.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {!programLevelTrimmed ? (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-3 dark:border-amber-900/50 dark:bg-amber-950/30 lg:col-span-3">
+                          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                            Select a program level to load courses for that level.
+                          </p>
+                        </div>
+                      ) : filteredCourseSettings.length > 0 ? (
+                        <>
+                          <div className="min-w-0">
+                            <label className={JOINING_FORM_LABEL_CLASS}>
+                              Course
+                              <span className="ml-1 text-rose-600">*</span>
+                            </label>
+                            <select
+                              value={formState.courseInfo.courseId || ''}
+                              onChange={(event) => handleManagedCourseSelect(event.target.value)}
+                              className={JOINING_FORM_CONTROL_CLASS}
+                            >
+                              <option value="">Choose a course</option>
+                              {filteredCourseSettings.map((item) => (
+                                <option key={item.course._id} value={item.course._id}>
+                                  {item.course.name}
+                                  {item.course.code ? ` (${item.course.code})` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="min-w-0">
+                            <label className={JOINING_FORM_LABEL_CLASS}>
+                              Branch
+                              <span className="ml-1 text-rose-600">*</span>
+                            </label>
+                            <select
+                              value={formState.courseInfo.branchId || ''}
+                              onChange={(event) => handleManagedBranchSelect(event.target.value)}
+                              disabled={!formState.courseInfo.courseId}
+                              className={JOINING_FORM_CONTROL_CLASS}
+                            >
+                              <option value="">
+                                {formState.courseInfo.courseId ? 'Choose a branch' : 'Select a course first'}
+                              </option>
+                              {(() => {
+                                if (!selectedCourseSetting) return null;
+                                const branchMap = new Map<string, Branch>();
+                                selectedCourseSetting.branches.forEach((branch) => {
+                                  const branchId = branch._id;
+                                  if (branchId && !branchMap.has(branchId)) {
+                                    branchMap.set(branchId, branch);
+                                  }
+                                });
+                                const uniqueBranches = Array.from(branchMap.values());
+                                return uniqueBranches.map((branch) => {
+                                  const branchId = branch._id;
+                                  return (
+                                    <option key={branchId} value={branchId}>
+                                      {branch.name}
+                                      {branch.code ? ` (${branch.code})` : ''}
+                                    </option>
+                                  );
+                                });
+                              })()}
+                            </select>
+                          </div>
+                          <div className="min-w-0">
+                            <label className={JOINING_FORM_LABEL_CLASS}>
+                              Category<span className="text-red-500">*</span>
+                            </label>
+                            <select
+                              value={selectedCasteCategoryId}
+                              onChange={(event) =>
+                                handleReservationCategoryChange(event.target.value)
+                              }
+                              className={JOINING_FORM_CONTROL_CLASS}
+                              disabled={casteCatalogLoading || !casteCatalogReady}
+                            >
+                              <option value="">
+                                {casteCatalogLoading
+                                  ? 'Loading categories…'
+                                  : !casteCatalogReady
+                                    ? 'Add categories in student database'
+                                    : 'Select category…'}
+                              </option>
+                              {casteCategories.map((category) => (
+                                <option key={category.id} value={category.id}>
+                                  {category.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="min-w-0">
+                            <label className={JOINING_FORM_LABEL_CLASS}>
+                              Caste
+                            </label>
+                            <select
+                              value={selectedCasteSelectValue}
+                              onChange={(event) =>
+                                handleReservationCasteChange(event.target.value)
+                              }
+                              className={JOINING_FORM_CONTROL_CLASS}
+                              disabled={
+                                casteCatalogLoading ||
+                                !selectedCasteCategoryId ||
+                                castesForSelectedCategory.length === 0
+                              }
+                            >
+                              <option value="">
+                                {casteCatalogLoading
+                                  ? 'Loading castes…'
+                                  : !selectedCasteCategoryId
+                                    ? 'Select category first…'
+                                    : castesForSelectedCategory.length === 0
+                                      ? 'Add castes in student database'
+                                      : 'Select caste (optional)…'}
+                              </option>
+                              {castesForSelectedCategory.map((caste) => (
+                                <option key={caste.id} value={caste.id}>
+                                  {caste.name}
+                                </option>
+                              ))}
+                              {selectedCasteSelectValue &&
+                              !castesForSelectedCategory.some(
+                                (c) => String(c.id) === String(selectedCasteSelectValue)
+                              ) ? (
+                                <option value={selectedCasteSelectValue}>
+                                  {selectedCasteSelectValue}
+                                </option>
+                              ) : null}
+                            </select>
+                          </div>
+                          {courseQuotaIntakeFields}
+                        </>
+                      ) : programLevelTrimmed ? (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-3 dark:border-amber-900/50 dark:bg-amber-950/30 lg:col-span-3">
+                          <p className="text-sm text-amber-800 dark:text-amber-200">
+                            {selectedCollegeId.trim()
+                              ? 'No courses for this level at the selected college.'
+                              : 'No courses for this program level.'}
+                          </p>
+                        </div>
+                      ) : null}
+                      {filteredCourseSettings.length === 0 ? (
+                        <>
+                          <div className="min-w-0">
+                            <label className={JOINING_FORM_LABEL_CLASS}>
+                              Category<span className="text-red-500">*</span>
+                            </label>
+                            <select
+                              value={selectedCasteCategoryId}
+                              onChange={(event) =>
+                                handleReservationCategoryChange(event.target.value)
+                              }
+                              className={JOINING_FORM_CONTROL_CLASS}
+                              disabled={casteCatalogLoading || !casteCatalogReady}
+                            >
+                              <option value="">
+                                {casteCatalogLoading
+                                  ? 'Loading categories…'
+                                  : !casteCatalogReady
+                                    ? 'Add categories in student database'
+                                    : 'Select category…'}
+                              </option>
+                              {casteCategories.map((category) => (
+                                <option key={category.id} value={category.id}>
+                                  {category.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="min-w-0">
+                            <label className={JOINING_FORM_LABEL_CLASS}>
+                              Caste
+                            </label>
+                            <select
+                              value={selectedCasteSelectValue}
+                              onChange={(event) =>
+                                handleReservationCasteChange(event.target.value)
+                              }
+                              className={JOINING_FORM_CONTROL_CLASS}
+                              disabled={
+                                casteCatalogLoading ||
+                                !selectedCasteCategoryId ||
+                                castesForSelectedCategory.length === 0
+                              }
+                            >
+                              <option value="">
+                                {casteCatalogLoading
+                                  ? 'Loading castes…'
+                                  : !selectedCasteCategoryId
+                                    ? 'Select category first…'
+                                    : castesForSelectedCategory.length === 0
+                                      ? 'Add castes in student database'
+                                      : 'Select caste (optional)…'}
+                              </option>
+                              {castesForSelectedCategory.map((caste) => (
+                                <option key={caste.id} value={caste.id}>
+                                  {caste.name}
+                                </option>
+                              ))}
+                              {selectedCasteSelectValue &&
+                              !castesForSelectedCategory.some(
+                                (c) => String(c.id) === String(selectedCasteSelectValue)
+                              ) ? (
+                                <option value={selectedCasteSelectValue}>
+                                  {selectedCasteSelectValue}
+                                </option>
+                              ) : null}
+                            </select>
+                          </div>
+                        </>
+                      ) : null}
+                      {filteredCourseSettings.length === 0 ? courseQuotaIntakeFields : null}
+                      <div className="min-w-0">
+                        <label className={JOINING_FORM_LABEL_CLASS}>
+                          EWS (Economically Weaker Section)<span className="text-red-500">*</span>
+                        </label>
+                        <div className="flex flex-wrap gap-3">
+                          <label className={JOINING_FORM_CHOICE_PILL_CLASS}>
+                            <input
+                              type="radio"
+                              name="ews"
+                              checked={formState.reservation.isEws === true}
+                              onChange={() => handleReservationEwsChange(true)}
+                              className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            Yes
+                          </label>
+                          <label className={JOINING_FORM_CHOICE_PILL_CLASS}>
+                            <input
+                              type="radio"
+                              name="ews"
+                              checked={formState.reservation.isEws !== true}
+                              onChange={() => handleReservationEwsChange(false)}
+                              className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            No
+                          </label>
+                        </div>
+                      </div>
+                      <div className="min-w-0">
+                        <label className={JOINING_FORM_LABEL_CLASS}>
+                          Other Reservations
+                        </label>
+                        <div className="flex items-start gap-2">
+                          <div className="min-w-0 flex-1">
+                            <Input compact
+                              value={otherReservationInput}
+                              onChange={(event) => setOtherReservationInput(event.target.value)}
+                              placeholder="Add NCC, Sports, PH, etc."
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="shrink-0"
+                            onClick={addOtherReservation}
+                          >
+                            Add
+                          </Button>
+                        </div>
+                        {(formState.reservation.other || []).length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {(formState.reservation.other || []).map((value) => (
+                              <span
+                                key={value}
+                                className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700"
+                              >
+                                {value}
+                                <button
+                                  type="button"
+                                  className="text-blue-500"
+                                  onClick={() => removeOtherReservation(value)}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="min-w-0">
+                        <label className={JOINING_FORM_LABEL_CLASS}>
+                          Qualified examinations
+                        </label>
+                        <div className="flex flex-wrap gap-3">
+                          {[
+                            { key: 'ssc' as const, label: 'SSC' },
+                            { key: 'interOrDiploma' as const, label: 'Inter / Diploma' },
+                            { key: 'ug' as const, label: 'UG' },
+                          ].map((item) => (
+                            <label key={item.key} className={JOINING_FORM_CHOICE_PILL_CLASS}>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(formState.qualifications[item.key])}
+                                onChange={() => toggleQualification(item.key)}
+                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              {item.label}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="min-w-0">
+                        <label className={JOINING_FORM_LABEL_CLASS}>
+                          Medium of Instruction
+                        </label>
+                        <div className="flex flex-wrap gap-3">
+                          {mediumOptions.map((option) => (
+                            <label key={option.value} className={JOINING_FORM_CHOICE_PILL_CLASS}>
+                              <input
+                                type="checkbox"
+                                checked={
+                                  Array.isArray(formState.qualifications.mediums) &&
+                                  formState.qualifications.mediums.includes(option.value)
+                                }
+                                onChange={() => toggleMediumSelection(option.value)}
+                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              {option.label}
+                            </label>
+                          ))}
+                        </div>
+                        {Array.isArray(formState.qualifications.mediums) &&
+                          formState.qualifications.mediums.includes('other') && (
+                            <div className="mt-3">
+                              <Input compact
+                                placeholder="Specify medium"
+                                value={formState.qualifications.otherMediumLabel || ''}
+                                onChange={(event) => handleMediumOtherLabelChange(event.target.value)}
+                              />
+                            </div>
+                          )}
+                      </div>
+                      <div className="min-w-0">
+                        <label className={JOINING_FORM_LABEL_CLASS}>
+                          Merit
+                        </label>
+                        <div className="flex flex-wrap gap-3">
+                          <label className={JOINING_FORM_CHOICE_PILL_CLASS}>
+                            <input
+                              type="radio"
+                              name="joining-merit"
+                              checked={formState.qualifications.merit === true}
+                              onChange={() => setMeritQualification(true)}
+                              className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            Yes
+                          </label>
+                          <label className={JOINING_FORM_CHOICE_PILL_CLASS}>
+                            <input
+                              type="radio"
+                              name="joining-merit"
+                              checked={formState.qualifications.merit === false}
+                              onChange={() => setMeritQualification(false)}
+                              className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            No
+                          </label>
+                        </div>
+                      </div>
+                      <div className="min-w-0">
+                        <label className={JOINING_FORM_LABEL_CLASS}>
+                          AC / Non-AC
+                        </label>
+                        <div className="flex flex-wrap gap-3">
+                          <label className={JOINING_FORM_CHOICE_PILL_CLASS}>
+                            <input
+                              type="radio"
+                              name="joining-ac"
+                              checked={formState.qualifications.ac === true}
+                              onChange={() => setAcQualification(true)}
+                              className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            AC
+                          </label>
+                          <label className={JOINING_FORM_CHOICE_PILL_CLASS}>
+                            <input
+                              type="radio"
+                              name="joining-ac"
+                              checked={formState.qualifications.ac === false}
+                              onChange={() => setAcQualification(false)}
+                              className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            Non-AC
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    );
+                  })()}
+                </>
+              ) : null}
+              </ApplicationInfoCard>
+              <ApplicationInfoCard
+                title="Student & parent photos"
+                icon={<User className="h-4 w-4" aria-hidden />}
+                description="Upload or update student, father, and mother photos"
+              >
+                <JoiningApplicantPhotosSection
+                  fields={joiningRegistrationDisplayFieldsCoerced}
+                  getValue={getRegistrationFieldValue}
+                  onChange={handleRegistrationFieldChange}
+                  photoUploadContext={joiningPhotoUploadContext}
+                  disabled={!canWriteJoining && !isAdmissionEditable}
+                  requireStudentPhoto={isStudentPhotoRequired}
+                />
+              </ApplicationInfoCard>
+
+              <ApplicationInfoCard
+                title="Student profile"
+                icon={<User className="h-4 w-4" aria-hidden />}
+                description="Registration fields and contact details"
+              >
+              {showJoiningRegistrationEditor ? (
+                <div>
+                  {registrationFormsError ? (
+                    <p className="text-sm text-red-600 dark:text-red-400">
+                      Could not load registration form.
+                    </p>
+                  ) : registrationFormError ? (
+                    <p className="text-sm text-red-600 dark:text-red-400">
+                      Could not load registration form fields.
+                    </p>
+                  ) : !registrationFormId ? (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">No registration form configured.</p>
+                  ) : isLoadingRegistrationForm ? (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+                  ) : registrationFormFieldsAllFilteredOut ? null : regHasDyn ? (
+                    <JoiningDynamicRegistrationFields
+                      fields={joiningRegistrationDisplayFieldsCoerced}
+                      getValue={getRegistrationFieldValue}
+                      onChange={handleRegistrationFieldChange}
+                      selectedState={registrationLocationState}
+                      selectedDistrict={registrationLocationDistrict}
+                      fixedRegistrationAcademicYear={joiningRegistrationCourseContext.fixed.year}
+                      fixedRegistrationSemester={
+                        joiningRegistrationCourseContext.isBtech
+                          ? btechRegistrationSemester
+                          : joiningRegistrationCourseContext.standardSemester
+                      }
+                      isBtechJoining={joiningRegistrationCourseContext.isBtech}
+                      btechYearOptions={joiningRegistrationCourseContext.btechYearOptions}
+                      photoUploadContext={joiningPhotoUploadContext}
+                      studentContactFields={{
+                        phone: formState.studentInfo.phone || '',
+                        onPhoneChange: (value) => handleStudentInfoChange('phone', value),
+                        preferredMobileNumber: formState.studentInfo.preferredMobileNumber || '',
+                        onPreferredMobileChange: (value) =>
+                          handleStudentInfoChange('preferredMobileNumber', value),
+                        dropdownStudentPhone: preferredMobileSources.studentPhone,
+                        fatherPhone: preferredMobileSources.fatherPhone,
+                        motherPhone: preferredMobileSources.motherPhone,
+                        guardianPhones: preferredMobileGuardianSources,
+                        aadhaarNumber: formState.studentInfo.aadhaarNumber || '',
+                        onAadhaarChange: (value) => handleStudentInfoChange('aadhaarNumber', value),
+                        showAadhaar: showStudentAadhaar,
+                        onToggleShowAadhaar: () => setShowStudentAadhaar((prev) => !prev),
+                        contactFieldsDisabled: !canWriteJoining && !isAdmissionEditable,
+                        isScholarApplicable: formState.studentInfo.isScholarApplicable,
+                        onIsScholarApplicableChange: (value) =>
+                          handleStudentInfoChange('isScholarApplicable', value),
+                      }}
+                      omitIntakeYearSemesterFromGrid
+                      hideInlinePortraits
+                      admissionDateLocked={admissionDateLocked}
+                      admissionDateCurrentYmd={admissionDateCurrentYmd}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+              {!showStudentContactBesidePreviousCollege ? (
+                <div className={cn('mt-4', JOINING_FORM_GRID_CLASS)}>
+                  <div>
+                    <Input compact
+                      label="Student mobile number"
+                      type="tel"
+                      inputMode="numeric"
+                      autoComplete="tel"
+                      value={formState.studentInfo.phone || ''}
+                      onChange={(event) =>
+                        handleStudentInfoChange('phone', event.target.value.replace(/\D/g, ''))
+                      }
+                      placeholder="10-digit mobile"
+                      maxLength={15}
+                    />
+                  </div>
+                  <PreferredMobileNumberSelect
+                    value={formState.studentInfo.preferredMobileNumber}
+                    onChange={(value) => handleStudentInfoChange('preferredMobileNumber', value)}
+                    studentPhone={preferredMobileSources.studentPhone}
+                    fatherPhone={preferredMobileSources.fatherPhone}
+                    motherPhone={preferredMobileSources.motherPhone}
+                    guardianPhones={preferredMobileGuardianSources}
+                    disabled={!canWriteJoining && !isAdmissionEditable}
+                  />
+                  <div>
+                    <label className={JOINING_FORM_LABEL_CLASS}>
+                      Aadhaar Number
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type={showStudentAadhaar ? 'text' : 'password'}
+                        value={formState.studentInfo.aadhaarNumber || ''}
+                        onChange={(event) =>
+                          handleStudentInfoChange('aadhaarNumber', event.target.value)
+                        }
+                        placeholder="12-digit Aadhaar number"
+                        className={JOINING_FORM_CONTROL_CLASS}
+                        maxLength={14}
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => setShowStudentAadhaar((prev) => !prev)}
+                      >
+                        {showStudentAadhaar ? 'Hide' : 'Show'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {showStudentContactBesidePreviousCollege ? (
+                <div className="mt-4 md:max-w-md">
+                  <PreferredMobileNumberSelect
+                    value={formState.studentInfo.preferredMobileNumber}
+                    onChange={(value) => handleStudentInfoChange('preferredMobileNumber', value)}
+                    studentPhone={preferredMobileSources.studentPhone}
+                    fatherPhone={preferredMobileSources.fatherPhone}
+                    motherPhone={preferredMobileSources.motherPhone}
+                    guardianPhones={preferredMobileGuardianSources}
+                    disabled={!canWriteJoining && !isAdmissionEditable}
+                  />
+                </div>
+              ) : null}
+              {!regHasDyn &&
+              (!hideJoiningStudentName || !hideJoiningStudentGender || !hideJoiningDateOfBirth) ? (
+                <div className="mt-2 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                  {!hideJoiningStudentName ? (
+                    <div>
+                      <Input compact
+                        label="Student Name"
+                        value={formState.studentInfo.name}
+                        onChange={(event) => handleStudentInfoChange('name', event.target.value)}
+                      />
+                    </div>
+                  ) : null}
+                  {!hideJoiningDateOfBirth ? (
+                    <div>
+                      <Input compact
+                        label="Date of Birth"
+                        value={formState.studentInfo.dateOfBirth || ''}
+                        onChange={(event) =>
+                          handleStudentInfoChange('dateOfBirth', event.target.value)
+                        }
+                        type="date"
+                      />
+                    </div>
+                  ) : null}
+                  {!hideJoiningStudentGender ? (
+                    <div>
+                      <label className={JOINING_FORM_LABEL_CLASS}>
+                        Gender
+                      </label>
+                      <select
+                        value={formState.studentInfo.gender || ''}
+                        onChange={(event) => handleStudentInfoChange('gender', event.target.value)}
+                        className={JOINING_FORM_CONTROL_CLASS}
+                      >
+                        <option value="">Select</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                  ) : null}
+                  <div>
+                    <label className={JOINING_FORM_LABEL_CLASS}>
+                      Scholar Applicable <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={formState.studentInfo.isScholarApplicable === undefined ? '' : String(formState.studentInfo.isScholarApplicable)}
+                      onChange={(event) => {
+                        const val = event.target.value;
+                        handleStudentInfoChange(
+                          'isScholarApplicable',
+                          val === 'true' ? true : val === 'false' ? false : undefined
+                        );
+                      }}
+                      className={JOINING_FORM_CONTROL_CLASS}
+                      disabled={!canWriteJoining && !isAdmissionEditable}
+                      required
+                    >
+                      <option value="">Select</option>
+                      <option value="true">Yes</option>
+                      <option value="false">No</option>
+                    </select>
+                  </div>
+                </div>
+              ) : null}
+              </ApplicationInfoCard>
+
+              <ApplicationInfoCard
+                title="Parents details"
+                icon={<Users className="h-4 w-4" aria-hidden />}
+              >
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
+                    Father Information
+                  </h3>
+                  <div className="mt-2 space-y-2">
+                    <div>
+                      <Input compact
+                        label="Father Name"
+                        value={formState.parents.father.name || ''}
+                        onChange={(event) => handleParentChange('father', 'name', event.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Input compact
+                        label="Father Mobile Number"
+                        type="tel"
+                        inputMode="numeric"
+                        autoComplete="tel"
+                        value={formState.parents.father.phone || ''}
+                        onChange={(event) =>
+                          handleParentChange(
+                            'father',
+                            'phone',
+                            event.target.value.replace(/\D/g, '')
+                          )
+                        }
+                        placeholder="10-digit mobile"
+                        maxLength={15}
+                      />
+                    </div>
+                    <div>
+                      <label className={JOINING_FORM_LABEL_CLASS}>
+                        Father Aadhaar Number
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type={showFatherAadhaar ? 'text' : 'password'}
+                          value={formState.parents.father.aadhaarNumber || ''}
+                          onChange={(event) =>
+                            handleParentChange('father', 'aadhaarNumber', event.target.value)
+                          }
+                          placeholder="12-digit Aadhaar number"
+                          className={JOINING_FORM_CONTROL_CLASS}
+                          maxLength={14}
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => setShowFatherAadhaar((prev) => !prev)}
+                        >
+                          {showFatherAadhaar ? 'Hide' : 'Show'}
+                        </Button>
+                      </div>
+                    </div>
+                    <ParentOccupationSelect
+                      role="father"
+                      label="Father Occupation"
+                      value={formState.parents.father.occupation || ''}
+                      onChange={(next) => handleParentChange('father', 'occupation', next)}
+                      labelClassName={JOINING_FORM_LABEL_CLASS}
+                      selectClassName={JOINING_FORM_CONTROL_CLASS}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-slate-300">
+                    Mother Information
+                  </h3>
+                  <div className="mt-2 space-y-2">
+                    {!hideJoiningMotherName ? (
+                    <div>
+                      <Input compact
+                        label="Mother Name"
+                        value={formState.parents.mother.name || ''}
+                        onChange={(event) => handleParentChange('mother', 'name', event.target.value)}
+                      />
+                    </div>
+                    ) : null}
+                    <div>
+                      <Input compact
+                        label="Mother Mobile Number"
+                        type="tel"
+                        inputMode="numeric"
+                        autoComplete="tel"
+                        value={formState.parents.mother.phone || ''}
+                        onChange={(event) =>
+                          handleParentChange(
+                            'mother',
+                            'phone',
+                            event.target.value.replace(/\D/g, '')
+                          )
+                        }
+                        placeholder="10-digit mobile"
+                        maxLength={15}
+                      />
+                    </div>
+                    <div>
+                      <label className={JOINING_FORM_LABEL_CLASS}>
+                        Mother Aadhaar Number
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type={showMotherAadhaar ? 'text' : 'password'}
+                          value={formState.parents.mother.aadhaarNumber || ''}
+                          onChange={(event) =>
+                            handleParentChange('mother', 'aadhaarNumber', event.target.value)
+                          }
+                          placeholder="12-digit Aadhaar number"
+                          className={JOINING_FORM_CONTROL_CLASS}
+                          maxLength={14}
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => setShowMotherAadhaar((prev) => !prev)}
+                        >
+                          {showMotherAadhaar ? 'Hide' : 'Show'}
+                        </Button>
+                      </div>
+                    </div>
+                    <ParentOccupationSelect
+                      role="mother"
+                      label="Mother Occupation"
+                      value={formState.parents.mother.occupation || ''}
+                      onChange={(next) => handleParentChange('mother', 'occupation', next)}
+                      labelClassName={JOINING_FORM_LABEL_CLASS}
+                      selectClassName={JOINING_FORM_CONTROL_CLASS}
+                    />
+                  </div>
+                </div>
+              </div>
+              </ApplicationInfoCard>
+
+              <ApplicationInfoCard
+                title="Address details"
+                icon={<MapPin className="h-4 w-4" aria-hidden />}
+                description="Communication address and optional relative contacts"
+              >
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Communication address
+              </h3>
+              <div className={cn('mt-2', JOINING_FORM_GRID_CLASS)}>
+                {!hideJoiningDoor ? (
+                <Input compact
+                  label="Door No / Street Name"
+                  value={formState.address.communication.doorOrStreet || ''}
+                  onChange={(event) =>
+                    handleCommunicationAddressChange('doorOrStreet', event.target.value.toUpperCase())
+                  }
+                />
+                ) : null}
+                {!hideJoiningLandmark ? (
+                <Input compact
+                  label="Landmark"
+                  value={formState.address.communication.landmark || ''}
+                  onChange={(event) =>
+                    handleCommunicationAddressChange('landmark', event.target.value.toUpperCase())
+                  }
+                />
+                ) : null}
+                {!hideJoiningVillage ? (
+                <Input compact
+                  label="Village / Town / City"
+                  value={formState.address.communication.villageOrCity || ''}
+                  onChange={(event) =>
+                    handleCommunicationAddressChange('villageOrCity', event.target.value.toUpperCase())
+                  }
+                />
+                ) : null}
+                {!hideJoiningState ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">State</label>
+                  <select
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    value={formState.address.communication.state || ''}
+                    onChange={(e) => handleCommunicationAddressChange('state', e.target.value)}
+                  >
+                    <option value="">Select state</option>
+                    {stateNames.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                ) : null}
+                {!hideJoiningDistrict ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">District</label>
+                  <select
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    value={formState.address.communication.district || ''}
+                    onChange={(e) => handleCommunicationAddressChange('district', e.target.value)}
+                  >
+                    <option value="">Select district</option>
+                    {commDistricts.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+                ) : null}
+                {!hideJoiningMandal ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mandal</label>
+                  <select
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    value={formState.address.communication.mandal || ''}
+                    onChange={(e) => handleCommunicationAddressChange('mandal', e.target.value)}
+                  >
+                    <option value="">Select mandal</option>
+                    {commMandals.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                ) : null}
+                {!hideJoiningPin ? (
+                <Input compact
+                  label="PIN Code"
+                  value={formState.address.communication.pinCode || ''}
+                  onChange={(event) =>
+                    handleCommunicationAddressChange('pinCode', event.target.value)
+                  }
+                  maxLength={6}
+                />
+                ) : null}
+              </div>
+              <div className="mt-4 flex items-center justify-between border-t border-slate-200/80 pt-3 dark:border-slate-700">
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Relatives / friends (optional)
+                  </h3>
+                </div>
+                <Button type="button" variant="secondary" onClick={addRelative}>
+                  Add Address
+                </Button>
+              </div>
+              <div className="mt-4 space-y-6">
+                {formState.address.relatives.length === 0 && (
+                  <p className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
+                    No relative or friend addresses added.
+                  </p>
+                )}
+                {formState.address.relatives.map((relative, index) => (
+                  <RelativeAddressRow
+                    key={`relative-${index}`}
+                    relative={relative}
+                    index={index}
+                    updateRelative={updateRelative}
+                    toggleRelativeGuardian={toggleRelativeGuardian}
+                    removeRelative={removeRelative}
+                    stateNames={stateNames}
+                  />
+                ))}
+              </div>
+              </ApplicationInfoCard>
+
+              <ApplicationInfoCard
+                title="Education history"
+                icon={<BookOpen className="h-4 w-4" aria-hidden />}
+                description="SSC, Inter/Diploma, UG, and other qualifications"
+              >
+              <div className="mb-4 flex items-center justify-end">
+                <Button type="button" variant="secondary" onClick={addEducationHistory}>
+                  Add Entry
+                </Button>
+              </div>
+              <div className="space-y-3">
+                {formState.educationHistory.length === 0 && (
+                  <p className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
+                    No education history added. Include SSC, Inter/Diploma, UG, and others if
+                    applicable.
+                  </p>
+                )}
+                {formState.educationHistory.map((entry, index) => (
+                  <div
+                    key={`edu-${index}`}
+                    className="rounded-lg border border-gray-200 p-3 shadow-sm dark:border-slate-700"
+                  >
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-semibold text-gray-700 dark:text-slate-200">
+                        Entry #{index + 1}
+                      </h3>
+                      <button className="text-sm text-red-500" onClick={() => removeEducationHistory(index)}>
+                        Remove
+                      </button>
+                    </div>
+                    <div className={cn('mt-2', JOINING_FORM_GRID_CLASS)}>
+                      <div>
+                        <label className={JOINING_FORM_LABEL_CLASS}>
+                          Level
+                        </label>
+                        <select
+                          value={entry.level}
+                          onChange={(event) =>
+                            updateEducationHistory(index, 'level', event.target.value)
+                          }
+                          className={JOINING_FORM_CONTROL_CLASS}
+                        >
+                          <option value="ssc">SSC</option>
+                          <option value="inter_diploma">Inter / Diploma</option>
+                          <option value="ug">UG</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                      {entry.level === 'other' && (
+                        <Input compact
+                          label="Specify Level"
+                          value={entry.otherLevelLabel || ''}
+                          onChange={(event) =>
+                            updateEducationHistory(index, 'otherLevelLabel', event.target.value)
+                          }
+                        />
+                      )}
+                      <Input compact
+                        label="Course / Branch"
+                        value={entry.courseOrBranch || ''}
+                        onChange={(event) =>
+                          updateEducationHistory(index, 'courseOrBranch', event.target.value)
+                        }
+                      />
+                      <Input compact
+                        label="Year of Passing"
+                        value={entry.yearOfPassing || ''}
+                        onChange={(event) => handleYearOfPassingChange(index, event.target.value)}
+                        inputMode="numeric"
+                        maxLength={4}
+                      />
+                      <Input compact
+                        label="School / College Name"
+                        value={entry.institutionName || ''}
+                        onChange={(event) =>
+                          updateEducationHistory(index, 'institutionName', event.target.value)
+                        }
+                      />
+                      <Input compact
+                        label="School / College Address"
+                        value={entry.institutionAddress || ''}
+                        onChange={(event) =>
+                          updateEducationHistory(index, 'institutionAddress', event.target.value)
+                        }
+                      />
+                      <Input compact
+                        label="Hall Ticket Number"
+                        value={entry.hallTicketNumber || ''}
+                        onChange={(event) =>
+                          updateEducationHistory(index, 'hallTicketNumber', event.target.value)
+                        }
+                      />
+                      <Input compact
+                        label="Total Marks / Grade / %"
+                        value={entry.totalMarksOrGrade || ''}
+                        onChange={(event) => handleTotalMarksChange(index, event.target.value)}
+                        inputMode="decimal"
+                      />
+                      <Input compact
+                        label="CET Rank (Optional)"
+                        value={entry.cetRank || ''}
+                        onChange={(event) =>
+                          updateEducationHistory(index, 'cetRank', event.target.value)
+                        }
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              </ApplicationInfoCard>
+
+              <ApplicationInfoCard
+                title="Siblings"
+                icon={<UserPlus className="h-4 w-4" aria-hidden />}
+              >
+              <div className="mb-4">
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-200">
+                  Do you have any siblings studying here? <span className="text-red-500">*</span>
+                </label>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="hasSiblings"
+                      checked={formState.hasSiblings === true}
+                      onChange={() => {
+                        setFormState((prev) => ({
+                           ...prev,
+                           hasSiblings: true,
+                           siblings: prev.siblings.length ? prev.siblings : [
+                             { name: '', relation: '', studyingStandard: '', institutionName: '' }
+                           ]
+                        }));
+                      }}
+                      className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                      required
+                    />
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-200">Yes</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="hasSiblings"
+                      checked={formState.hasSiblings === false}
+                      onChange={() => setFormState(prev => ({ ...prev, hasSiblings: false, siblings: [] }))}
+                      className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                      required
+                    />
+                    <span className="text-sm font-medium text-gray-700 dark:text-slate-200">No</span>
+                  </label>
+                </div>
+              </div>
+              {formState.hasSiblings && (
+                <>
+                  <div className="mb-4 flex items-center justify-end">
+                    <Button type="button" variant="secondary" onClick={addSibling}>
+                      Add Sibling
+                    </Button>
+                  </div>
+                  <div className="space-y-3">
+                    {formState.siblings.length === 0 && (
+                      <p className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
+                        No siblings recorded. Click &quot;Add Sibling&quot; to add one.
+                      </p>
+                    )}
+                    {formState.siblings.map((sibling, index) => (
+                      <div
+                        key={`sibling-${index}`}
+                        className="rounded-lg border border-gray-200 p-3 shadow-sm dark:border-slate-700"
+                      >
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-xs font-semibold text-gray-700 dark:text-slate-200">
+                            Sibling #{index + 1}
+                          </h3>
+                          <button className="text-sm text-red-500" onClick={() => removeSibling(index)}>
+                            Remove
+                          </button>
+                        </div>
+                        <div className={cn('mt-2', JOINING_FORM_GRID_CLASS)}>
+                          <Input compact
+                            label={<span>Name <span className="text-red-500">*</span></span> as any}
+                            value={sibling.name || ''}
+                            onChange={(event) => updateSibling(index, 'name', event.target.value)}
+                            required
+                          />
+                          <Input compact
+                            label={<span>Relation <span className="text-red-500">*</span></span> as any}
+                            value={sibling.relation || ''}
+                            onChange={(event) => updateSibling(index, 'relation', event.target.value)}
+                            required
+                          />
+                          <Input compact
+                            label={<span>Studying Standard <span className="text-red-500">*</span></span> as any}
+                            value={sibling.studyingStandard || ''}
+                            onChange={(event) =>
+                              updateSibling(index, 'studyingStandard', event.target.value)
+                            }
+                            required
+                          />
+                          <Input compact
+                            label={<span>College / School Name <span className="text-red-500">*</span></span> as any}
+                            value={sibling.institutionName || ''}
+                            onChange={(event) =>
+                              updateSibling(index, 'institutionName', event.target.value)
+                            }
+                            required
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              </ApplicationInfoCard>            </JoiningStepOneShell>
+
+            {renderWizardStepFooter(1)}
+            </div>
+
+            <div
+              id="joining-wizard-step-2"
+              className={cn(
+                'space-y-10',
+                (useWizard && applicationWizardStep !== 2) || isPublicEdit ? 'hidden' : ''
+              )}
+            >
+              <section
+                className="scroll-mt-24 space-y-6 rounded-2xl border-2 border-indigo-200/80 bg-gradient-to-b from-indigo-50/50 to-white/95 p-6 shadow-lg shadow-indigo-100/30 backdrop-blur dark:border-indigo-900/50 dark:from-indigo-950/25 dark:to-slate-900/70 dark:shadow-none"
+              >
+                {/* Important documents */}
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                      Important Documents
+                    </h3>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <PrintableCertificateChecklist
+                        certificateGuidance={certificateGuidance}
+                        certificateChecklistParsed={certificateChecklistParsed}
+                        programLevel={programLevelTrimmed}
+                        certificationStatus={derivedCertificationStatus}
+                        studentName={formState.studentInfo.name || lead?.name}
+                        fatherName={formState.parents.father.name}
+                        course={formState.courseInfo.course}
+                        branch={formState.courseInfo.branch}
+                        enquiryNumber={lead?.enquiryNumber}
+                      />
+                      {canWriteJoining ? (
+                        <Button
+                          type="button"
+                          variant="primary"
+                          disabled={saveStepTwoMutation.isPending}
+                          onClick={() => saveStepTwoMutation.mutate()}
+                        >
+                          {saveStepTwoMutation.isPending ? 'Saving…' : 'Save documents'}
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {!isPublicEdit && programLevelTrimmed ? (
+                    <CertificateInformationChecklistBlock
+                      variant="admission-step-two"
+                      radioNameSuffix="-joining-wizard-step2"
+                      derivedCertificationStatus={derivedCertificationStatus}
+                      programLevelTrimmed={programLevelTrimmed}
+                      isLoadingCertificateGuidance={isLoadingCertificateGuidance}
+                      certificateGuidance={certificateGuidance}
+                      certificateChecklistParsed={certificateChecklistParsed}
+                      onChecklistOptionChange={updateCertificateChecklistOption}
+                      onChecklistStatusChange={updateCertificateChecklistStatus}
+                      title=""
+                    />
+                  ) : (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+                      Select a program level under Course &amp; Quota in Step 1 to load certificate rules.
+                    </p>
+                  )}
+                </div>
+
+                {/* Other documents */}
+                <div className="space-y-4 border-t border-indigo-100 pt-6 dark:border-indigo-900/40">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                      Other Documents
+                    </h3>
+                    <PrintableDocumentChecklist
+                      documentLabels={documentsChecklistForPrint.labels}
+                      documents={documentsChecklistForPrint.documents}
+                      title="Documents Checklist"
+                      studentName={formState.studentInfo.name || (lead as Lead | undefined)?.name || undefined}
+                      enquiryNumber={(lead as Lead | undefined)?.enquiryNumber || undefined}
+                      printButtonLabel="Print checklist"
+                      className="shrink-0"
+                    />
+                  </div>
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-500 dark:text-slate-400">
+                      Mark each document as received. SSC, Intermediate, Transfer Certificate, and Study
+                      Certificate are tracked under{' '}
+                      <span className="font-medium">Important Documents</span>.
+                      {isManagementQuotaSelected ? (
+                        <>
+                          {' '}
+                          CET rank card, hall ticket, allotment letter, and joining report are not required for{' '}
+                          <span className="font-medium">Management</span> quota.
+                        </>
+                      ) : null}
+                      {formState.reservation.isEws === true ? (
+                        <>
+                          {' '}
+                          <span className="font-medium">EWS Certificate</span> is required because EWS is Yes.
+                        </>
+                      ) : (
+                        <>
+                          {' '}
+                          EWS Certificate is hidden while EWS is No.
+                        </>
+                      )}
+                    </p>
+                    <div className={cn(JOINING_DOCUMENTS_GRID_CLASS)}>
+                      {(Object.entries(documentLabels) as [keyof JoiningDocuments, string][])
+                        .filter(([key]) =>
+                          isJoiningDocumentChecklistKeyVisible(key, formState.courseInfo.quota, {
+                            isEws: formState.reservation.isEws === true,
+                          })
+                        )
+                        .map(([key, label]) => (
+                          <div
+                            key={key}
+                            className="flex min-w-0 flex-col gap-2 rounded-lg border border-gray-200 px-3 py-2.5 shadow-sm sm:flex-row sm:items-center sm:justify-between dark:border-slate-700"
+                          >
+                            <p className="min-w-0 flex-1 text-xs font-medium leading-snug text-gray-800 dark:text-slate-200">
+                              {label}
+                            </p>
+                            <div className="flex shrink-0 flex-wrap gap-2">
+                              {documentStatusOptions.map((statusOption) => (
+                                <label
+                                  key={`${key}-${statusOption}`}
+                                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-semibold uppercase transition ${
+                                    (formState.documents[key] || 'pending') === statusOption
+                                      ? 'border-blue-400 bg-blue-50 text-blue-700 dark:border-blue-500/60 dark:bg-blue-900/30 dark:text-blue-200'
+                                      : 'border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-600 dark:border-slate-700 dark:text-slate-300 dark:hover:border-blue-400 dark:hover:text-blue-200'
+                                  }`}
+                                >
+                                  <input
+                                    type="radio"
+                                    name={`document-${key}`}
+                                    value={statusOption}
+                                    checked={(formState.documents[key] || 'pending') === statusOption}
+                                    disabled={!canWriteJoining && !isAdmissionEditable}
+                                    onChange={() => updateDocumentStatus(key, statusOption)}
+                                    className="h-3 w-3 border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+                                  />
+                                  <span>{statusOption === 'received' ? 'Received' : 'Pending'}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+              {renderWizardStepFooter(2)}
+            </div>
+
+            <div
+              id="joining-wizard-step-3"
+              className={cn(
+                'space-y-10',
+                (useWizard && applicationWizardStep !== 3) || isPublicEdit ? 'hidden' : ''
+              )}
+            >
+              {(useWizard ? applicationWizardStep === 3 : showAdminPostAdmissionStep3) ? (
+                <>
+                  {step3AccommodationReadOnly && pendingFeeRequest ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+                      Bus or hostel selection is locked while a fee request is awaiting approval. The saved
+                      accommodation below will apply after approval.
+                    </div>
+                  ) : null}
+                  <AdmissionStepThreeBusHostelPanel
+                    value={transportDetails}
+                    onChange={step3AccommodationReadOnly ? undefined : canWriteJoining ? setTransportDetails : undefined}
+                    disabled={step3AccommodationReadOnly || !canWriteJoining}
+                    courseName={formState.courseInfo.course}
+                    programTotalYears={programTotalYears}
+                    studentYearOfStudy={studentYearOfStudy}
+                    joiningAcademicYear={String(joiningRegistrationCourseContext.calendarYear)}
+                    collegeId={selectedCollegeId ? Number(selectedCollegeId) : null}
+                    managedCourseId={formState.courseInfo.courseId ? Number(formState.courseInfo.courseId) : null}
+                    admissionNumber={admissionNumberDisplay}
+                    joiningId={joiningRecord?._id}
+                    selectionUiLocked={step3SelectionUiLocked}
+                    onExistingRequestChange={setHasExistingTransportRequest}
+                    onExistingHostelRequestChange={setHasExistingHostelRequest}
+                  />
+                  {renderWizardStepFooter(3)}
+                </>
+              ) : null}
+            </div>
+
+            <div
+              id="joining-wizard-step-4"
+              className={cn(
+                'space-y-10',
+                (useWizard && applicationWizardStep !== 4) || isPublicEdit ? 'hidden' : ''
+              )}
+            >
+            {(useWizard ? applicationWizardStep === 4 : showAdminPostAdmissionStep4) ? (
+              <div
+                id="joining-post-admission-payments"
+                className="space-y-8"
+              >
+              <ApplicationInfoCard
+                title="Reference & Admission Phase"
+                icon={<UserPlus className="h-4 w-4" aria-hidden />}
+                description="Staff referral contact and admission phase for this application"
+              >
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6">
+                  <div className="min-w-0 space-y-2">
+                    <label className={JOINING_FORM_LABEL_CLASS}>Reference</label>
+                    <div className="flex flex-row flex-wrap items-center gap-3">
+                      <div className="w-full max-w-[28rem] shrink-0">
+                        <ReferenceUserSelect
+                          label=""
+                          publicMode={isPublicEdit}
+                          value={reference1}
+                          onChange={setReference1}
+                          disabled={
+                            !canEditReferenceField ||
+                            isUpdatingAdmission ||
+                            isSaving
+                          }
+                          showAddUserButton={
+                            canEditReferenceField &&
+                            !isUpdatingAdmission &&
+                            !isSaving
+                          }
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        onClick={handleSaveReference}
+                        disabled={
+                          isSavingReference ||
+                          !canEditReferenceField ||
+                          isUpdatingAdmission ||
+                          isSaving
+                        }
+                        className="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-orange-600 hover:bg-orange-700 text-white shadow-sm transition"
+                      >
+                        {isSavingReference ? 'Saving...' : 'Save'}
+                      </Button>
+                      {!isPublicEdit && admissionRecord?._id ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => setIsReferenceHistoryOpen(true)}
+                          className="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold"
+                        >
+                          <History className="mr-1.5 h-4 w-4" aria-hidden />
+                          Reference history
+                        </Button>
+                      ) : null}
+                      {referenceFieldReadOnlyReason ? (
+                        <p
+                          className="flex min-w-0 flex-1 items-center rounded-lg border border-amber-200/90 bg-amber-50/90 px-3 py-2 text-sm leading-snug text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/35 dark:text-amber-100"
+                          role="status"
+                        >
+                          {referenceFieldReadOnlyReason}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="min-w-0 space-y-2">
+                    <label className={JOINING_FORM_LABEL_CLASS} htmlFor="joining-admission-phase">
+                      Admission Phase
+                    </label>
+                    <div className="flex flex-row flex-wrap items-center gap-3">
+                      <div className="w-full max-w-[16rem] shrink-0">
+                        <select
+                          id="joining-admission-phase"
+                          value={admissionPhase}
+                          onChange={(event) =>
+                            setAdmissionPhase(normalizeAdmissionPhaseValue(event.target.value))
+                          }
+                          disabled={
+                            !canEditAdmissionPhaseField ||
+                            isUpdatingAdmission ||
+                            isSaving ||
+                            isSavingAdmissionPhase
+                          }
+                          className={JOINING_FORM_CONTROL_CLASS}
+                        >
+                          <option value="">Select phase</option>
+                          {ADMISSION_PHASE_OPTIONS.map((phase) => (
+                            <option key={phase} value={phase}>
+                              Phase {phase}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <Button
+                        type="button"
+                        onClick={handleSaveAdmissionPhase}
+                        disabled={
+                          isSavingAdmissionPhase ||
+                          !canEditAdmissionPhaseField ||
+                          isUpdatingAdmission ||
+                          isSaving
+                        }
+                        className="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-orange-600 hover:bg-orange-700 text-white shadow-sm transition"
+                      >
+                        {isSavingAdmissionPhase ? 'Saving...' : 'Save'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+                {!isPublicEdit && admissionRecord?._id ? (
+                  <AdmissionReferenceHistoryDialog
+                    open={isReferenceHistoryOpen}
+                    onOpenChange={setIsReferenceHistoryOpen}
+                    admissionId={String(admissionRecord._id)}
+                    admissionNumber={
+                      admissionNumberDisplay || admissionRecord.admissionNumber || undefined
+                    }
+                  />
+                ) : null}
+              </ApplicationInfoCard>
+
+              {/* Concessions / Revised Fees Builder — open for staff drafts; admission # on Submit Fee Request */}
+              {!isPublicEdit && canWriteJoining && (status !== 'approved' || canEditAdmission) && (
+                <div className="mt-8 rounded-2xl border border-blue-200 bg-white p-6 shadow-lg dark:border-blue-900/40 dark:bg-slate-900/70">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-4 dark:border-slate-800">
+                    <h3 className="text-lg font-bold text-blue-700 dark:text-blue-200 flex items-center gap-2">
+                      <GraduationCap className="h-6 w-6 text-blue-600 dark:text-blue-300" />
+                      Revised Fee & Concessions Builder
+                    </h3>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      onClick={() => openBuilderPaymentDialog()}
+                      disabled={
+                        !canWritePayments ||
+                        !joiningRecord?._id ||
+                        !hasManagedCourseAndBranch ||
+                        !admissionNumberDisplay ||
+                        (builderPaymentRows.length === 0 && collectMasterFeeHeads.length === 0)
+                      }
+                      title={
+                        !hasManagedCourseAndBranch
+                          ? 'Complete course, college, branch, and quota on Step 1 first'
+                          : !admissionNumberDisplay
+                            ? 'Fill all years on at least one fee head, then submit the fee request to generate the admission number'
+                            : undefined
+                      }
+                    >
+                      Collect Payment
+                    </Button>
+                  </div>
+                  {!admissionNumberDisplay ? (
+                    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100">
+                      No admission number yet. Enter revised/concession amounts for{' '}
+                      <span className="font-semibold">all years on at least one fee head</span>
+                      , then click Submit Fee Request to generate it.
+                    </div>
+                  ) : null}
+                  {!admissionNumberDisplay &&
+                  hasRevisedFeeLines &&
+                  !allBuilderHeadsHaveAmounts &&
+                  builderHeadsCompleteness.missing.length > 0 ? (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+                      <span className="font-semibold">Incomplete years —</span> fill all years on
+                      at least one fee head. Still missing:{' '}
+                      {builderHeadsCompleteness.missing
+                        .slice(0, 8)
+                        .map((m) => `${m.headName} Y${m.year}`)
+                        .join(', ')}
+                      {builderHeadsCompleteness.missing.length > 8
+                        ? ` (+${builderHeadsCompleteness.missing.length - 8} more)`
+                        : ''}
+                      .
+                    </div>
+                  ) : null}
+
+                  {/* Pending approval notice — shown inside builder when a request is awaiting */}
+                  {pendingFeeRequest ? (
+                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+                      <span className="font-semibold">Pending approval —</span> a revised fee request was submitted on{' '}
+                      {pendingFeeRequest.submittedAt
+                        ? new Date(pendingFeeRequest.submittedAt).toLocaleString('en-IN')
+                        : '—'}
+                      . Rows highlighted in amber are locked until approved or rejected on the{' '}
+                      {canApproveFeeRequest ? (
+                        <Link href="/superadmin/joining/fee-requests" className="font-semibold underline underline-offset-2">
+                          Fee Requests
+                        </Link>
+                      ) : (
+                        <span className="font-semibold">Fee Requests</span>
+                      )}{' '}desk.
+                    </div>
+                  ) : null}
+
+                  {/* Dropdown to add fee head */}
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <select
+                      value={selectedBuilderFeeHeadId}
+                      onChange={(e) => setSelectedBuilderFeeHeadId(e.target.value)}
+                      className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 min-w-[200px]"
+                    >
+                      <option value="">Select Fee Head...</option>
+                      {allUniqueFeeHeads.map((head) => (
+                        <option key={head.id} value={head.id}>
+                          {head.name} ({head.code})
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={handleAddBuilderFeeHead}
+                      disabled={!selectedBuilderFeeHeadId}
+                    >
+                      Add Fee Head
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      onClick={() => saveStepFourMutation.mutate()}
+                      disabled={saveStepFourMutation.isPending || isBusy || !workflowJoiningId}
+                    >
+                      {saveStepFourMutation.isPending ? 'Saving...' : 'Save Configuration'}
+                    </Button>
+                    {hasRevisedFeeLines && canSubmitFeeRequest && (
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        onClick={() => submitFeeRequestMutation.mutate()}
+                        disabled={
+                          submitFeeRequestMutation.isPending ||
+                          isBusy ||
+                          !workflowJoiningId ||
+                          !canSubmitFeeRequestForAdmission
+                        }
+                        title={
+                          !allBuilderHeadsHaveAmounts
+                            ? 'Fill all years on at least one fee head first'
+                            : undefined
+                        }
+                      >
+                        {submitFeeRequestMutation.isPending
+                          ? 'Submitting...'
+                          : pendingFeeRequest
+                            ? 'Update Fee Request'
+                            : 'Submit Fee Request'}
+                      </Button>
+                    )}
+                    
+                  </div>
+
+                  {/* Grid of configured concessions */}
+                  {currentBuilderHeads.length > 0 ? (
+                    <div className="mt-6 overflow-x-auto rounded-xl border border-slate-200 shadow-sm dark:border-slate-700">
+                      <table className="w-full text-sm text-left">
+                        <thead>
+                          <tr className={STEP_FOUR_TABLE_HEAD_ROW}>
+                            <th className={STEP_FOUR_TABLE_HEAD_CELL}>Fee Head</th>
+                            <th className={STEP_FOUR_TABLE_HEAD_CELL}>Type</th>
+                            {feeYearColumns.map((year) => (
+                              <th key={year} className={`${STEP_FOUR_TABLE_HEAD_CELL} text-right`}>
+                                Year {year}
+                              </th>
+                            ))}
+                            <th className={`${STEP_FOUR_TABLE_HEAD_CELL} text-center w-16`}>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {currentBuilderHeads.map((head) => {
+                            // Is this head locked because it belongs to a pending fee_request?
+                            const isPendingHead =
+                              pendingConcessionHeadIds.has(String(head.id)) ||
+                              pendingConcessionHeadIds.has(String(head.code || ''));
+
+                            const headLines = (studentFeeDetails.lines || []).filter((line) => {
+                              if (line.feeHeadId && String(line.feeHeadId) === String(head.id)) return true;
+                              if (line.feeHeadCode && head.code && String(line.feeHeadCode).toUpperCase() === String(head.code).toUpperCase()) return true;
+                              return feeStructureCatalogRows.some(
+                                (item) =>
+                                  String(item._id) === String(line.structureId) &&
+                                  String(item.feeHead) === String(head.id)
+                              );
+                            });
+                            const headConcessionType =
+                              builderHeadConcessionTypes[head.id] ??
+                              (headLines.some((line) => line.concessionType === 'CONCESSION')
+                                ? 'CONCESSION'
+                                : 'REVISED_FEE');
+                            const setBuilderHeadConcessionType = (nextType: 'REVISED_FEE' | 'CONCESSION') => {
+                              setBuilderHeadConcessionTypes((prev) => ({ ...prev, [head.id]: nextType }));
+                              const newLines = (studentFeeDetails.lines || []).map((line) => {
+                                const isThisHead =
+                                  (line.feeHeadId && String(line.feeHeadId) === String(head.id)) ||
+                                  (line.feeHeadCode && head.code && String(line.feeHeadCode).toUpperCase() === String(head.code).toUpperCase()) ||
+                                  feeStructureCatalogRows.some(
+                                    (item) =>
+                                      String(item._id) === String(line.structureId) &&
+                                      String(item.feeHead) === String(head.id)
+                                  );
+                                if (!isThisHead) return line;
+                                const existingAmount =
+                                  line?.amount !== undefined && line?.amount !== null
+                                    ? Number(line.amount) || 0
+                                    : null;
+                                if (existingAmount === null || existingAmount <= 0) return line;
+                                return {
+                                  ...line,
+                                  remarks: nextType === 'CONCESSION' ? 'Concession' : 'Revised',
+                                  concessionType: nextType,
+                                };
+                              });
+                              setStudentFeeDetails({
+                                ...studentFeeDetails,
+                                lines: newLines,
+                              });
+                              markBuilderConcessionsDirty();
+                            };
+                            return (
+                              <tr
+                                key={head.id}
+                                className={
+                                  isPendingHead
+                                    ? 'border-t border-amber-200 bg-amber-50/60 dark:border-amber-900/40 dark:bg-amber-950/20'
+                                    : 'border-t border-slate-100 hover:bg-slate-50/50 dark:border-slate-800 dark:hover:bg-slate-800/40'
+                                }
+                              >
+                                <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">
+                                  <div className="flex items-center gap-2">
+                                    <span>{head.name}</span>
+                                    {isPendingHead && (
+                                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                                        Pending Approval
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] font-normal text-slate-400 font-mono">{head.code}</div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <select
+                                    value={headConcessionType}
+                                    onChange={(e) =>
+                                      setBuilderHeadConcessionType(
+                                        e.target.value === 'CONCESSION' ? 'CONCESSION' : 'REVISED_FEE'
+                                      )
+                                    }
+                                    className="min-w-[8.5rem] rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    <option value="REVISED_FEE">Revised Fee</option>
+                                    <option value="CONCESSION">Concession</option>
+                                  </select>
+                                </td>
+                                {feeYearColumns.map((year) => {
+                                  const matchingCatalog = feeStructureCatalogRows.find(
+                                    (c) => String(c.feeHead) === String(head.id) && c.studentYear === year
+                                  );
+                                  const catalogAmount = matchingCatalog ? Number(matchingCatalog.amount) || 0 : 0;
+                                  
+                                  const structureId = matchingCatalog ? String(matchingCatalog._id) : `custom-${head.id}-${year}`;
+                                  
+                                  const isLineForHeadAndYear = (l: JoiningStudentFeeLineOverride) => {
+                                    if (Number(l.studentYear) !== Number(year)) return false;
+                                    if (String(l.structureId) === structureId) return true;
+                                    if (l.feeHeadId && String(l.feeHeadId) === String(head.id)) return true;
+                                    if (l.feeHeadCode && head.code && String(l.feeHeadCode).toUpperCase() === String(head.code).toUpperCase()) return true;
+                                    return false;
+                                  };
+                                  const line = studentFeeDetails.lines?.find(isLineForHeadAndYear);
+                                  const currentAmount =
+                                    line?.amount !== undefined && line?.amount !== null
+                                      ? Number(line.amount) || 0
+                                      : null;
+
+                                  const patchBuilderLine = (patch: {
+                                    amount?: number | null;
+                                  }) => {
+                                    const newLines = [...(studentFeeDetails.lines || [])];
+                                    const lineIdx = newLines.findIndex(isLineForHeadAndYear);
+                                    const nextAmount =
+                                      patch.amount !== undefined ? patch.amount : currentAmount;
+                                    if (nextAmount === null || !Number.isFinite(Number(nextAmount)) || Number(nextAmount) <= 0) {
+                                      if (lineIdx >= 0) {
+                                        newLines.splice(lineIdx, 1);
+                                        setStudentFeeDetails({
+                                          ...studentFeeDetails,
+                                          lines: newLines,
+                                        });
+                                        markBuilderConcessionsDirty();
+                                      }
+                                      return;
+                                    }
+                                    const nextLine: JoiningStudentFeeLineOverride = {
+                                      structureId,
+                                      amount: Number(nextAmount),
+                                      remarks: headConcessionType === 'CONCESSION' ? 'Concession' : 'Revised',
+                                      concessionType: headConcessionType,
+                                      feeHeadId: head.id,
+                                      feeHeadCode: head.code,
+                                      feeHeadName: head.name,
+                                      studentYear: year,
+                                    };
+                                    if (lineIdx >= 0) {
+                                      newLines[lineIdx] = { ...newLines[lineIdx], ...nextLine };
+                                    } else {
+                                      newLines.push(nextLine);
+                                    }
+                                    setStudentFeeDetails({
+                                      ...studentFeeDetails,
+                                      lines: newLines,
+                                    });
+                                    markBuilderConcessionsDirty();
+                                  };
+
+                                  return (
+                                    <td key={year} className="px-4 py-3 text-right whitespace-nowrap">
+                                      <div className="inline-flex w-32 flex-col items-end gap-1">
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-right text-sm font-semibold text-slate-900 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                          value={currentAmount ?? ''}
+                                          onChange={(e) => {
+                                            const val = e.target.value === '' ? '' : Number(e.target.value);
+                                            if (val !== '' && (!Number.isFinite(val) || val < 0)) return;
+                                            patchBuilderLine({ amount: val === '' ? null : val });
+                                          }}
+                                        />
+                                        {headConcessionType === 'CONCESSION' && currentAmount !== null && catalogAmount > 0 ? (
+                                          <span className="text-[10px] text-emerald-600 dark:text-emerald-300">
+                                            Payable: {formatCurrency(Math.max(catalogAmount - currentAmount, 0))}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </td>
+                                  );
+                                })}
+                                <td className="px-4 py-3 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const structureIds = feeYearColumns.map((year) => {
+                                        const matchingCatalog = feeStructureCatalogRows.find(
+                                          (c) => String(c.feeHead) === String(head.id) && c.studentYear === year
+                                        );
+                                        return matchingCatalog ? String(matchingCatalog._id) : `custom-${head.id}-${year}`;
+                                      });
+
+                                      const newLines = (studentFeeDetails.lines || []).filter(
+                                        (line) => !structureIds.includes(String(line.structureId))
+                                      );
+                                      setBuilderAddedHeadIds((prev) =>
+                                        prev.filter((id) => String(id) !== String(head.id))
+                                      );
+                                      setBuilderHeadConcessionTypes((prev) => {
+                                        const next = { ...prev };
+                                        delete next[head.id];
+                                        return next;
+                                      });
+                                      setStudentFeeDetails({
+                                        ...studentFeeDetails,
+                                        lines: newLines,
+                                      });
+                                      markBuilderConcessionsDirty();
+                                    }}
+                                    className="text-xs font-semibold text-red-600 hover:text-red-800"
+                                  >
+                                    Remove
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-xs text-slate-500 italic">No revised heads configured yet.</p>
+                  )}
+
+                  {/* Integrated Admission Remarks */}
+                  <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-blue-600 dark:text-blue-300" aria-hidden />
+                        Admission Remarks
+                      </label>
+                      {Boolean(admissionRemarks.trim()) && !isEditingRemarks && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setIsEditingRemarks(true)}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit Remarks
+                        </Button>
+                      )}
+                    </div>
+
+                    {Boolean(admissionRemarks.trim()) && !isEditingRemarks ? (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 text-sm text-slate-800 shadow-sm dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200 flex items-start justify-between gap-3">
+                        <p className="whitespace-pre-wrap leading-relaxed">{admissionRemarks}</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <textarea
+                          className={JOINING_FORM_CONTROL_CLASS}
+                          rows={3}
+                          placeholder="Enter admission remarks..."
+                          value={admissionRemarks}
+                          onChange={(e) => setAdmissionRemarks(e.target.value)}
+                          disabled={
+                            (status === 'approved' && !canEditAdmission) ||
+                            isUpdatingAdmission ||
+                            isSaving
+                          }
+                        />
+                        {Boolean(admissionRemarks.trim()) && isEditingRemarks && (
+                          <div className="mt-2 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => setIsEditingRemarks(false)}
+                              className="text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 underline"
+                            >
+                              Cancel Edit
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
+                      Admission remarks will be saved with the fee configuration and stored in the Fee Management database.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {renderWizardStepFooter(4)}
+            </div>
+            ) : null}
+            </div>
+          </div>
+        )}
+      </div>
+      {isBuilderPaymentDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-white/40 bg-white/95 p-6 shadow-2xl shadow-slate-900/20 dark:border-slate-700 dark:bg-slate-900/95">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  Collect fee payment
+                </h3>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  Select configured fee heads (including hostel/transport), or add another fee head from the master
+                  list, then record Cash or Bank payments. Transactions are stored against the selected fee head.
+                </p>
+              </div>
+              <div className="flex items-start gap-3">
+                <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Year
+                  <select
+                    value={builderPaymentYear}
+                    onChange={(event) => {
+                      const nextYear = Number(event.target.value) || 1;
+                      setBuilderPaymentYear(nextYear);
+                      setBuilderPaymentTargets([]);
+                      setBuilderPaymentForm((prev) => ({
+                        ...prev,
+                        amount: '',
+                        remarks: '',
+                      }));
+                    }}
+                    className="mt-1 block rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-700 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    disabled={builderPaymentForm.isProcessing}
+                  >
+                    {feeYearColumns.map((year) => (
+                      <option key={year} value={year}>
+                        Year {year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  onClick={closeBuilderPaymentDialog}
+                  aria-label="Close payment dialog"
+                  disabled={builderPaymentForm.isProcessing}
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm font-semibold dark:border-slate-700 dark:bg-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setBuilderPaymentTab('collect')}
+                  className={cn(
+                    'rounded-lg px-4 py-2 transition',
+                    builderPaymentTab === 'collect'
+                      ? 'bg-white text-blue-700 shadow-sm dark:bg-slate-900 dark:text-blue-300'
+                      : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
+                  )}
+                >
+                  Collect
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBuilderPaymentTab('transactions');
+                    void queryClient.invalidateQueries({ queryKey: ['fee-mongo-transactions'] });
+                  }}
+                  className={cn(
+                    'rounded-lg px-4 py-2 transition',
+                    builderPaymentTab === 'transactions'
+                      ? 'bg-white text-blue-700 shadow-sm dark:bg-slate-900 dark:text-blue-300'
+                      : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100'
+                  )}
+                >
+                  Transactions
+                </button>
+              </div>
+
+              {builderPaymentTab === 'collect' ? (
+              <>
+              <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-800/40">
+                <label className="min-w-[14rem] flex-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Add fee head
+                  <select
+                    value={selectedCollectFeeHeadId}
+                    onChange={(event) => setSelectedCollectFeeHeadId(event.target.value)}
+                    className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-700 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    disabled={builderPaymentForm.isProcessing || collectFeeHeadOptions.length === 0}
+                  >
+                    <option value="">
+                      {collectFeeHeadOptions.length === 0
+                        ? 'All fee heads already listed'
+                        : 'Select fee head to collect…'}
+                    </option>
+                    {collectFeeHeadOptions.map((head) => (
+                      <option key={head.id} value={head.id}>
+                        {head.name}
+                        {head.code ? ` (${head.code})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleAddCollectFeeHead}
+                  disabled={
+                    builderPaymentForm.isProcessing ||
+                    !selectedCollectFeeHeadId ||
+                    collectFeeHeadOptions.length === 0
+                  }
+                >
+                  Add to collect list
+                </Button>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className={STEP_FOUR_TABLE_HEAD_ROW}>
+                      <th className={STEP_FOUR_TABLE_HEAD_CELL}>
+                        <span className="sr-only">Select</span>
+                      </th>
+                      <th className={STEP_FOUR_TABLE_HEAD_CELL}>Fee Head</th>
+                      <th className={`${STEP_FOUR_TABLE_HEAD_CELL} text-right`}>Actual</th>
+                      <th className={`${STEP_FOUR_TABLE_HEAD_CELL} text-right`}>Payable</th>
+                      <th className={`${STEP_FOUR_TABLE_HEAD_CELL} text-right`}>Paid</th>
+                      <th className={`${STEP_FOUR_TABLE_HEAD_CELL} text-right`}>Collect Amount</th>
+                      <th className={STEP_FOUR_TABLE_HEAD_CELL}>Year</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {builderPaymentYearRows.map((row) => {
+                      const isAdhoc = Boolean(row.isAdhoc);
+                      const isFullyPaid =
+                        !isAdhoc &&
+                        Number.isFinite(row.payableAmount) &&
+                        row.paidAmount >= row.payableAmount;
+                      const selected = builderPaymentTargets.some(
+                        (target) =>
+                          target.structureId === row.structureId && target.studentYear === row.studentYear
+                      );
+                      return (
+                        <tr
+                          key={`${row.structureId}-${row.studentYear}`}
+                          className={
+                            isFullyPaid
+                              ? 'opacity-60 bg-slate-50/50 dark:bg-slate-900/30'
+                              : selected
+                                ? 'bg-blue-50/70 dark:bg-blue-950/30'
+                                : isAdhoc
+                                  ? 'bg-orange-50/40 dark:bg-orange-950/20'
+                                  : undefined
+                          }
+                        >
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selected && !isFullyPaid}
+                              onChange={(event) => {
+                                const nextTarget = {
+                                  structureId: row.structureId,
+                                  feeHeadId: row.feeHeadId,
+                                  feeHeadName: row.feeHeadName,
+                                  feeHeadCode: row.feeHeadCode,
+                                  studentYear: row.studentYear,
+                                  semester: row.semester,
+                                  amount: (() => {
+                                    if (isAdhoc) return '';
+                                    const balance = Math.max(row.payableAmount - row.paidAmount, 0);
+                                    return balance > 0 ? String(balance) : '';
+                                  })(),
+                                };
+                                setBuilderPaymentTargets((prev) => {
+                                  const withoutCurrent = prev.filter(
+                                    (target) =>
+                                      !(
+                                        target.structureId === row.structureId &&
+                                        target.studentYear === row.studentYear
+                                      )
+                                  );
+                                  const next = event.target.checked
+                                    ? [...withoutCurrent, nextTarget]
+                                    : withoutCurrent;
+                                  const nextTotal = next.reduce(
+                                    (sum, target) => sum + (Number(target.amount) || 0),
+                                    0
+                                  );
+                                  setBuilderPaymentForm((form) => ({
+                                    ...form,
+                                    amount: nextTotal > 0 ? String(nextTotal) : '',
+                                    remarks: next.length > 0
+                                      ? next.map((target) => target.feeHeadName || target.feeHeadCode || 'Fee payment').join(' / ')
+                                      : '',
+                                  }));
+                                  return next;
+                                });
+                              }}
+                              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                              disabled={builderPaymentForm.isProcessing || isFullyPaid}
+                              aria-label={`Select ${row.feeHeadName || row.feeHeadCode || 'fee head'}`}
+                            />
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="font-semibold text-slate-800 dark:text-slate-100">
+                              {row.feeHeadName || 'Fee head'}
+                            </div>
+                            {row.feeHeadCode ? (
+                              <div className="font-mono text-[10px] text-slate-400">{row.feeHeadCode}</div>
+                            ) : null}
+                            {isAdhoc ? (
+                              <div className="mt-0.5 flex items-center gap-2">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-300">
+                                  Extra fee head
+                                </span>
+                                <button
+                                  type="button"
+                                  className="text-[10px] font-semibold text-rose-600 hover:underline disabled:opacity-50 dark:text-rose-400"
+                                  disabled={builderPaymentForm.isProcessing}
+                                  onClick={() => {
+                                    setBuilderPaymentExtraHeads((prev) =>
+                                      prev.filter((head) => head.id !== row.feeHeadId)
+                                    );
+                                    setBuilderPaymentTargets((prev) => {
+                                      const next = prev.filter(
+                                        (target) =>
+                                          !(
+                                            target.structureId === row.structureId &&
+                                            target.studentYear === row.studentYear
+                                          )
+                                      );
+                                      const nextTotal = next.reduce(
+                                        (sum, target) => sum + (Number(target.amount) || 0),
+                                        0
+                                      );
+                                      setBuilderPaymentForm((form) => ({
+                                        ...form,
+                                        amount: nextTotal > 0 ? String(nextTotal) : '',
+                                        remarks:
+                                          next.length > 0
+                                            ? next
+                                                .map(
+                                                  (target) =>
+                                                    target.feeHeadName ||
+                                                    target.feeHeadCode ||
+                                                    'Fee payment'
+                                                )
+                                                .join(' / ')
+                                            : '',
+                                      }));
+                                      return next;
+                                    });
+                                  }}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ) : null}
+                          </td>
+ 
+                          <td className="px-4 py-3 text-right text-slate-500">
+                            {isAdhoc ? '—' : formatCurrency(row.catalogAmount)}
+                          </td>
+                          <td className="px-4 py-3 text-right font-semibold text-slate-900 dark:text-slate-100">
+                            {isAdhoc ? (
+                              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                Enter amount
+                              </span>
+                            ) : (
+                            <div className="inline-flex flex-col items-end gap-0.5">
+                              <span>{formatCurrency(row.payableAmount)}</span>
+                              {row.adjustmentAmount !== null && row.concessionType === 'CONCESSION' ? (
+                                <span className="text-[10px] text-emerald-600 dark:text-emerald-300">
+                                  Less {formatCurrency(row.adjustmentAmount)}
+                                </span>
+                              ) : null}
+                            </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="inline-flex flex-col items-end gap-0.5">
+                              <span className="font-semibold text-blue-700 dark:text-blue-300">
+                                {formatCurrency(row.paidAmount)}
+                              </span>
+                              {!isAdhoc && row.paidAmount >= row.payableAmount ? (
+                                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                                  Fully Paid
+                                </span>
+                              ) : row.paidAmount > 0 ? (
+                                <span className="text-[10px] text-slate-400">
+                                  {isAdhoc
+                                    ? 'Already collected'
+                                    : `Balance ${formatCurrency(Math.max(row.payableAmount - row.paidAmount, 0))}`}
+                                </span>
+                              ) : null}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              value={
+                                builderPaymentTargets.find(
+                                  (target) =>
+                                    target.structureId === row.structureId &&
+                                    target.studentYear === row.studentYear
+                                )?.amount || ''
+                              }
+                              onChange={(event) => {
+                                const nextAmount = event.target.value;
+                                setBuilderPaymentTargets((prev) => {
+                                  const next = prev.map((target) =>
+                                    target.structureId === row.structureId &&
+                                    target.studentYear === row.studentYear
+                                      ? { ...target, amount: nextAmount }
+                                      : target
+                                  );
+                                  const nextTotal = next.reduce(
+                                    (sum, target) => sum + (Number(target.amount) || 0),
+                                    0
+                                  );
+                                  setBuilderPaymentForm((form) => ({
+                                    ...form,
+                                    amount: nextTotal > 0 ? String(nextTotal) : '',
+                                  }));
+                                  return next;
+                                });
+                              }}
+                              className="w-28 rounded-lg border border-slate-200 bg-white px-2 py-1 text-right text-xs font-semibold text-slate-700 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800"
+                              placeholder="0"
+                              disabled={!selected || builderPaymentForm.isProcessing || isFullyPaid}
+                              aria-label={`Collect amount for ${row.feeHeadName || row.feeHeadCode || 'fee head'}`}
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                            Year {row.studentYear}
+                            {row.semester ? ` · Sem ${row.semester}` : ''}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {builderPaymentYearRows.length === 0 ? (
+                  <p className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                    No configured fee heads for Year {builderPaymentYear}. Use &quot;Add fee head&quot; above to collect
+                    against any master fee head.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className={cn(
+                "grid gap-3",
+                builderPaymentForm.paymentMode === 'Bank' ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-1 sm:grid-cols-2"
+              )}>
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Total amount (INR)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={builderPaymentSelectedTotal > 0 ? String(builderPaymentSelectedTotal) : builderPaymentForm.amount}
+                    readOnly
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-950 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-400 shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:border-slate-700"
+                    placeholder="Select fee heads"
+                    disabled={builderPaymentForm.isProcessing || builderPaymentTargets.length === 0}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Payment mode
+                  </label>
+                  <select
+                    value={builderPaymentForm.paymentMode}
+                    onChange={(event) => {
+                      const nextMode = event.target.value === 'Bank' ? 'Bank' : 'Cash';
+                      setBuilderPaymentForm((prev) => ({
+                        ...prev,
+                        paymentMode: nextMode,
+                        receiptNumber: nextMode === 'Bank' ? prev.receiptNumber : '',
+                        paymentConfigId: '',
+                      }));
+                      setRazorpayQrData(null);
+                      setQrError(null);
+                    }}
+                    className="w-full rounded-lg border border-slate-200 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:border-slate-700"
+                    disabled={builderPaymentForm.isProcessing || builderPaymentTargets.length === 0}
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="Bank">Bank</option>
+                  </select>
+                </div>
+                {builderPaymentForm.paymentMode === 'Bank' && (
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Deposit Account (Global Bank Account)
+                    </label>
+                    <select
+                      value={builderPaymentForm.paymentConfigId || ''}
+                      onChange={(event) => {
+                        setBuilderPaymentForm((prev) => ({
+                          ...prev,
+                          paymentConfigId: event.target.value,
+                        }));
+                      }}
+                      className="w-full rounded-lg border border-slate-200 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:border-slate-700"
+                      disabled={builderPaymentForm.isProcessing || builderPaymentTargets.length === 0}
+                    >
+                      <option value="">Select Global Account</option>
+                      {globalAccounts.map((acc) => (
+                        <option key={acc._id} value={acc._id}>
+                          {acc.account_name} ({acc.bank_name} - {acc.account_number})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {builderPaymentForm.paymentMode === 'Bank' && (
+                  <div className="sm:col-span-1">
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Bank reference number / UTR
+                    </label>
+                    <input
+                      type="text"
+                      value={builderPaymentForm.receiptNumber}
+                      onChange={(event) =>
+                        setBuilderPaymentForm((prev) => ({ ...prev, receiptNumber: event.target.value }))
+                      }
+                      className="w-full rounded-lg border border-slate-200 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:border-slate-700"
+                      placeholder="Enter UTR if student paid via direct net banking/DD/NEFT"
+                      disabled={builderPaymentForm.isProcessing || builderPaymentTargets.length === 0}
+                    />
+                  </div>
+                )}
+                <div className={builderPaymentForm.paymentMode === 'Bank' ? 'sm:col-span-2' : 'sm:col-span-2'}>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Remarks
+                  </label>
+                  <input
+                    type="text"
+                    value={builderPaymentForm.remarks}
+                    onChange={(event) =>
+                      setBuilderPaymentForm((prev) => ({ ...prev, remarks: event.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-200 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:border-slate-700"
+                    placeholder="Fee head / payment remarks"
+                    disabled={builderPaymentForm.isProcessing || builderPaymentTargets.length === 0}
+                  />
+                </div>
+              </div>
+
+              {builderPaymentForm.paymentMode === 'Bank' && builderPaymentSelectedTotal > 0 ? (
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/30 p-5 dark:border-slate-800 dark:bg-slate-900/50 space-y-4">
+                  <div className="flex items-center justify-between border-b border-indigo-100/50 pb-3 dark:border-slate-800">
+                    <div>
+                      <h4 className="text-sm font-bold text-indigo-900 dark:text-indigo-200">
+                        Razorpay Secure Gateway
+                      </h4>
+                      <p className="text-[11px] text-indigo-700/80 dark:text-indigo-300/80">
+                        Collect payment online using Razorpay (UPI, cards, net banking, or scanning QR)
+                      </p>
+                    </div>
+                  </div>
+
+                  {isQrGenerating && (
+                    <div className="flex flex-col items-center justify-center py-6 gap-2">
+                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+                      <p className="text-xs text-indigo-800 dark:text-indigo-300 font-medium">
+                        Initializing Razorpay Gateway...
+                      </p>
+                    </div>
+                  )}
+
+                  {isQrVerifying && (
+                    <div className="flex flex-col items-center justify-center py-6 gap-2">
+                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
+                      <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium">
+                        Verifying payment transaction status...
+                      </p>
+                    </div>
+                  )}
+
+                  {qrError && (
+                    <div className="rounded-lg bg-red-50 p-3 text-xs text-red-700 border border-red-200 dark:bg-red-950/20 dark:text-red-300 dark:border-red-900/50">
+                      <strong>Checkout Error:</strong> {qrError}
+                    </div>
+                  )}
+
+                  {!isQrGenerating && !isQrVerifying && (
+                    <div className="flex flex-col items-center py-3 gap-3">
+                      <button
+                        type="button"
+                        onClick={handleGenerateRazorpayQr}
+                        className="w-full flex items-center justify-center gap-2 py-3 text-sm font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition duration-200 cursor-pointer shadow-md"
+                      >
+                        💳 Open Razorpay Checkout Gateway
+                      </button>
+                      <p className="text-[10px] text-center text-slate-500">
+                        This opens Razorpay's official secure payment popup. The customer can scan a valid UPI QR code directly using their UPI apps (GPay, PhonePe, Paytm, BHIM) inside the gateway popup.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : builderPaymentForm.paymentMode === 'Bank' ? (
+                <div className="rounded-xl border border-dashed border-slate-300 p-4 text-center text-xs text-slate-500">
+                  Select fee heads in the table above to configure payment amount.
+                </div>
+              ) : null}
+              </>
+              ) : (
+                <div className="space-y-3">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Showing Fee Management transactions for Admission #
+                  {feeMongoTransactionFilters?.studentId || feeMongoAdmissionNumber || '—'}.
+                </p>
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className={STEP_FOUR_TABLE_HEAD_ROW}>
+                        <th className={STEP_FOUR_TABLE_HEAD_CELL}>Receipt</th>
+                        <th className={STEP_FOUR_TABLE_HEAD_CELL}>Fee Head</th>
+                        <th className={`${STEP_FOUR_TABLE_HEAD_CELL} text-right`}>Amount</th>
+                        <th className={STEP_FOUR_TABLE_HEAD_CELL}>Mode</th>
+                        <th className={STEP_FOUR_TABLE_HEAD_CELL}>Year</th>
+                        <th className={STEP_FOUR_TABLE_HEAD_CELL}>Date</th>
+                        <th className={STEP_FOUR_TABLE_HEAD_CELL}>Collected By</th>
+                        <th className={STEP_FOUR_TABLE_HEAD_CELL}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {feeMongoTransactions.map((tx) => {
+                        const row = tx as {
+                          _id?: string;
+                          receiptNumber?: string;
+                          feeHeadName?: string;
+                          feeHeadCode?: string;
+                          amount?: number;
+                          paymentMode?: string;
+                          studentYear?: string | number | null;
+                          paymentDate?: string | Date | null;
+                          collectedByName?: string;
+                          remarks?: string;
+                          status?: string;
+                        };
+                        return (
+                          <tr key={row._id || row.receiptNumber} className={row.status === 'cancelled' ? 'bg-slate-50/50 dark:bg-slate-900/30' : undefined}>
+                            <td className="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-300">
+                              {row.receiptNumber || '—'}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-semibold text-slate-800 dark:text-slate-100">
+                                {row.feeHeadName || row.remarks || 'Fee head'}
+                                {row.status === 'cancelled' && (
+                                  <span className="ml-2 inline-flex items-center rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 ring-1 ring-inset ring-rose-600/10 dark:bg-rose-950/20 dark:text-rose-400">
+                                    Cancelled
+                                  </span>
+                                )}
+                              </div>
+                              {row.feeHeadCode ? (
+                                <div className="font-mono text-[10px] text-slate-400">{row.feeHeadCode}</div>
+                              ) : null}
+                            </td>
+                            <td className={`px-4 py-3 text-right font-semibold ${row.status === 'cancelled' ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-slate-100'}`}>
+                              {formatCurrency(Number(row.amount) || 0)}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                              {row.paymentMode === 'Net Banking' ? 'Bank' : row.paymentMode || '—'}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                              Year {row.studentYear || builderPaymentYear}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                              {row.paymentDate ? new Date(row.paymentDate).toLocaleString('en-IN') : '—'}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                              {row.collectedByName || '—'}
+                            </td>
+                            <td className="px-4 py-3">
+                              {row.receiptNumber && row.status !== 'cancelled' && (
+                                <PrintActionButton
+                                  label="Print"
+                                  className="!px-2.5"
+                                  onClick={() => {
+                                    const receiptDetails = {
+                                      receiptNumber: row.receiptNumber,
+                                      studentName: formState.studentInfo.name || lead?.name || '—',
+                                      fatherName: formState.parents.father.name || '—',
+                                      course: formState.courseInfo.course || '—',
+                                      branch: formState.courseInfo.branch || '—',
+                                      quota: formState.courseInfo.quota || undefined,
+                                      enquiryNumber: lead?.enquiryNumber,
+                                      admissionNumber: admissionNumberDisplay || undefined,
+                                      amount: String(row.amount || '0'),
+                                      mode: (row.paymentMode === 'Net Banking' || row.paymentMode === 'Bank') ? 'online' : 'cash',
+                                      transactionId: row.receiptNumber,
+                                      feeHeadLabel: row.feeHeadName || row.remarks || 'Fee head',
+                                      collectedAt: row.paymentDate ? new Date(row.paymentDate).toLocaleString('en-IN') : '—',
+                                      collectorName: row.collectedByName,
+                                    };
+                                    void handleExternalPrint('fee', { template: 'fee-receipt' }, { template: 'fee-receipt', data: receiptDetails }, 'Fee Receipt');
+                                  }}
+                                />
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {feeMongoTransactionsQuery.isLoading ? (
+                    <p className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                      Loading Fee Management transactions...
+                    </p>
+                  ) : feeMongoTransactions.length === 0 ? (
+                    <p className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                      No Fee Management transactions found for this admission number.
+                    </p>
+                  ) : null}
+                </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={closeBuilderPaymentDialog}
+                disabled={builderPaymentForm.isProcessing}
+              >
+                Cancel
+              </Button>
+              {builderPaymentTab === 'collect' ? (
+                <Button
+                  variant="primary"
+                  onClick={handleBuilderPaymentSubmit}
+                  disabled={builderPaymentForm.isProcessing || builderPaymentTargets.length === 0}
+                >
+                  {builderPaymentForm.isProcessing ? 'Recording…' : 'Record payment'}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+      {openPaymentMode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-white/40 bg-white/95 p-6 shadow-2xl shadow-slate-900/20 dark:border-slate-700 dark:bg-slate-900/95">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  {isAdditionalFeeMode
+                    ? openPaymentMode === 'cash'
+                      ? 'Record Additional Cash Payment'
+                      : 'Collect Additional Fee via Cashfree'
+                    : openPaymentMode === 'cash'
+                      ? 'Record Cash Payment'
+                      : 'Collect via Cashfree'}
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {isAdditionalFeeMode
+                    ? 'Capture any additional fee collected beyond the scheduled admission fee.'
+                    : openPaymentMode === 'cash'
+                      ? 'Confirm the amount received in cash. The logged-in user is marked as collector.'
+                      : 'Enter the amount to collect. The Cashfree checkout modal opens next for secure UPI/QR payment.'}
+                </p>
+              </div>
+              <button
+                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                onClick={closePaymentModal}
+                aria-label="Close payment dialog"
+                disabled={paymentFormState.isProcessing}
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/90 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Payment details (auto-filled)
+                </p>
+                <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt className="text-xs text-slate-500">Student</dt>
+                    <dd className="font-medium text-slate-900 dark:text-slate-100">
+                      {paymentReceiptPrintDetails.studentName}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-slate-500">Father</dt>
+                    <dd className="font-medium text-slate-900 dark:text-slate-100">
+                      {paymentReceiptPrintDetails.fatherName}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-slate-500">Course</dt>
+                    <dd className="font-medium text-slate-900 dark:text-slate-100">
+                      {paymentReceiptPrintDetails.course}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-slate-500">Branch</dt>
+                    <dd className="font-medium text-slate-900 dark:text-slate-100">
+                      {paymentReceiptPrintDetails.branch}
+                    </dd>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <dt className="text-xs text-slate-500">Date &amp; time</dt>
+                    <dd className="font-medium text-slate-900 dark:text-slate-100">
+                      {paymentReceiptPrintDetails.collectedAt}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+              {isAdditionalFeeMode && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/40 dark:text-amber-200">
+                  This transaction is marked as an additional fee. It will be tracked separately from the admission balance.
+                </div>
+              )}
+              {selectedFeeHead && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-900/30 dark:text-emerald-200">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                      Paying for
+                    </span>
+                    <span className="font-semibold">{selectedFeeHead.label}</span>
+                    {selectedFeeHead.feeHeadCode && (
+                      <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-emerald-700 dark:bg-emerald-800/50 dark:text-emerald-100">
+                        {selectedFeeHead.feeHeadCode}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFeeHead(null)}
+                    className="text-[11px] font-semibold text-emerald-700 underline-offset-2 hover:underline disabled:opacity-60 dark:text-emerald-200"
+                    disabled={paymentFormState.isProcessing}
+                  >
+                    Clear selection
+                  </button>
+                </div>
+              )}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Amount (INR)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={paymentFormState.amount}
+                  onChange={(event) =>
+                    setPaymentFormState((prev) => ({
+                      ...prev,
+                      amount: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-sm font-medium text-gray-700 shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-100"
+                  placeholder={
+                    isAdditionalFeeMode
+                      ? 'Enter additional amount'
+                      : configuredFee
+                        ? String(configuredFee)
+                        : 'Enter amount'
+                  }
+                  disabled={paymentFormState.isProcessing}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
+                  Transaction / reference ID
+                  {openPaymentMode === 'cash' ? (
+                    <span className="ml-1 font-normal text-slate-500">(receipt no., UTR, etc.)</span>
+                  ) : null}
+                </label>
+                <input
+                  type="text"
+                  value={paymentFormState.referenceId}
+                  onChange={(event) =>
+                    setPaymentFormState((prev) => ({
+                      ...prev,
+                      referenceId: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-sm font-medium text-gray-700 shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-100"
+                  placeholder={
+                    openPaymentMode === 'cash'
+                      ? 'Enter receipt or reference number'
+                      : 'Optional — filled after Cashfree payment'
+                  }
+                  disabled={paymentFormState.isProcessing}
+                />
+              </div>
+
+              {openPaymentMode === 'online' && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-700 dark:border-blue-900/60 dark:bg-blue-900/30 dark:text-blue-200">
+                  The Cashfree modal appears once you continue. Students can pay via UPI apps or card.
+                  Stay on this screen until the modal completes.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+              <PrintablePaymentReceipt
+                details={paymentReceiptPrintDetails}
+                printButtonLabel="Print payment slip"
+              />
+              <div className="flex flex-wrap items-center justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={closePaymentModal}
+                disabled={paymentFormState.isProcessing}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={openPaymentMode === 'cash' ? handleCashPaymentSubmit : handleCashfreePayment}
+                disabled={paymentFormState.isProcessing}
+              >
+                {paymentFormState.isProcessing
+                  ? 'Processing…'
+                  : openPaymentMode === 'cash'
+                    ? 'Record Payment'
+                    : 'Collect Payment'}
+              </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {publicLinkDialog && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="public-link-dialog-title"
+          onClick={() => setPublicLinkDialog(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="public-link-dialog-title" className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+              Public edit link
+            </h2>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+              Anyone with this URL can edit this draft until it expires (5 minutes from creation). The link was copied
+              to your clipboard.
+            </p>
+            <label className="mt-4 block text-xs font-medium uppercase tracking-wide text-slate-500">URL</label>
+            <div className="mt-1 break-all rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-slate-800 dark:bg-slate-800 dark:text-slate-200">
+              {publicLinkDialog.url}
+            </div>
+            {publicLinkDialog.expiresAt && (
+              <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                Expires: <strong>{new Date(publicLinkDialog.expiresAt).toLocaleString()}</strong>
+              </p>
+            )}
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void navigator.clipboard?.writeText(publicLinkDialog.url).catch(() => {})}
+              >
+                Copy again
+              </Button>
+              <Button type="button" variant="primary" onClick={() => setPublicLinkDialog(null)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {admissionNumberDialog && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admission-number-dialog-title"
+          onClick={() => setAdmissionNumberDialog(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-emerald-200 bg-white p-6 shadow-xl dark:border-emerald-900/50 dark:bg-slate-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+                <GraduationCap className="h-6 w-6" aria-hidden />
+              </div>
+              <div>
+                <h2
+                  id="admission-number-dialog-title"
+                  className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+                >
+                  Admission number generated
+                </h2>
+                <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
+                  Fee request submitted for approval.
+                </p>
+              </div>
+            </div>
+            <label className="mt-5 block text-xs font-medium uppercase tracking-wide text-slate-500">
+              Admission number
+            </label>
+            <div className="mt-1 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-center font-mono text-2xl font-bold tracking-wide text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-100">
+              {admissionNumberDialog}
+            </div>
+            {admitCardPrintStudent.courseId ? (
+              <div className="mt-4">
+                <PrintableAdmitCard
+                  courseId={admitCardPrintStudent.courseId}
+                  student={{ ...admitCardPrintStudent, admissionNumber: admissionNumberDialog }}
+                  printButtonLabel="Print acknowledgement card"
+                  className="w-full"
+                  size="md"
+                  disabled={!hasManagedCourseAndBranch}
+                  disabledTitle="Select college, course, and branch before printing the acknowledgement card"
+                />
+              </div>
+            ) : null}
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(admissionNumberDialog).catch(() => {});
+                  showToast.success('Admission number copied');
+                }}
+              >
+                Copy number
+              </Button>
+              <Button type="button" variant="primary" onClick={() => setAdmissionNumberDialog(null)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+

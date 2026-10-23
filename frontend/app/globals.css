@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+/* Use class-based dark mode only; do not follow device preference (prefers-color-scheme) */
+@custom-variant dark (&&:where(.dark, .dark *));
+
+:root {
+  --background: #fffbf7;
+  --foreground: #1c1917;
+  --primary: #ea580c;
+  --primary-hover: #c2410c;
+  --primary-muted: #fff7ed;
+  --primary-ring: rgba(234, 88, 12, 0.25);
+  --font-family-sans: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Roboto",
+    "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", sans-serif;
+  --font-family-mono: "JetBrains Mono", "Fira Code", "Source Code Pro", "SFMono-Regular",
+    "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", monospace;
+}
+
+html.dark {
+  --background: #0f172a;
+  --foreground: #f8fafc;
+  --primary: #f97316;
+  --primary-hover: #ea580c;
+  --primary-muted: #431407;
+  --primary-ring: rgba(249, 115, 22, 0.3);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --font-sans: var(--font-family-sans);
+  --font-mono: var(--font-family-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-family-sans);
+  min-height: 100vh;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Shimmer animation for skeleton loaders */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite;
+}
+
+@keyframes text-shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.shimmer-text {
+  color: white;
+  background: linear-gradient(
+    90deg,
+    white 0%,
+    white 35%,
+    #f97316 45%,
+    #fb923c 50%,
+    #f97316 55%,
+    white 65%,
+    white 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: text-shimmer 10s linear infinite;
+  /* Standard way to achieve text clipping effect */
+  -webkit-text-fill-color: transparent;
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(0) translateX(0);
+    opacity: 0;
+  }
+
+  10% {
+    opacity: var(--tw-opacity, 0.2);
+    /* Use the opacity set on the element if possible, otherwise fallback */
+  }
+
+  50% {
+    transform: translateY(-50vh) translateX(20px);
+  }
+
+  90% {
+    opacity: var(--tw-opacity, 0.2);
+  }
+
+  100% {
+    transform: translateY(-120vh) translateX(-20px);
+    opacity: 0;
+  }
+}
+
+.animate-float {
+  animation-name: float;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}

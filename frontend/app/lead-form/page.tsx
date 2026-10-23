@@ -1,0 +1,674 @@
+'use client';
+
+import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
+import { leadAPI, utmAPI, formBuilderAPI } from '@/lib/api';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { Input } from '@/components/ui/Input';
+import { useLocations } from '@/lib/useLocations';
+import { useInstitutions } from '@/lib/useInstitutions';
+
+export default function LeadFormPage() {
+  const router = useRouter();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [formId, setFormId] = useState<string | null>(null);
+  const [dynamicFormData, setDynamicFormData] = useState<Record<string, any>>({});
+  
+  // Capture UTM parameters from URL
+  const [utmParams, setUtmParams] = useState({
+    utm_source: '',
+    utm_medium: '',
+    utm_campaign: '',
+    utm_term: '',
+    utm_content: '',
+  });
+
+  // Extract UTM parameters and form_id from URL on mount and track click if needed
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      setUtmParams({
+        utm_source: urlParams.get('utm_source') || '',
+        utm_medium: urlParams.get('utm_medium') || '',
+        utm_campaign: urlParams.get('utm_campaign') || '',
+        utm_term: urlParams.get('utm_term') || '',
+        utm_content: urlParams.get('utm_content') || '',
+      });
+
+      // Check for form_id in URL parameters (from short URL redirect)
+      const formIdFromUrl = urlParams.get('form_id');
+      if (formIdFromUrl) {
+        setFormId(formIdFromUrl);
+      }
+
+      // Track click if redirect=false or redirect parameter is missing (long URL direct click)
+      const redirectParam = urlParams.get('redirect');
+      if (redirectParam !== 'true' && !formIdFromUrl) {
+        // This is a long URL click - track it and get form_id
+        utmAPI.trackClick(window.location.href)
+          .then((response: any) => {
+            // Response structure from backend: { success: true, data: { tracked: true, formId: ... }, message: ... }
+            // trackClick returns response.data from axios, so response is { success: true, data: {...}, message: ... }
+            const formIdFromResponse = response?.data?.formId || null;
+            if (formIdFromResponse) {
+              setFormId(formIdFromResponse);
+            }
+          })
+          .catch((err: any) => {
+            // Silently fail - tracking is not critical
+          });
+      }
+    }
+  }, []);
+
+  // No static form data - only dynamic fields
+
+  // Fetch form definition if formId is available
+  const { data: formDataResponse, isLoading: isLoadingForm, error: formError } = useQuery({
+    queryKey: ['form-builder', 'form', formId],
+    queryFn: async () => {
+      if (!formId) return null;
+      try {
+        // Use public endpoint for lead form
+        const response = await formBuilderAPI.getForm(formId, { includeFields: true, showInactive: false, public: true });
+        return response;
+      } catch (error) {
+        return null;
+      }
+    },
+    enabled: !!formId,
+  });
+
+  const dynamicForm = useMemo(() => {
+    if (!formDataResponse) return null;
+    // Response structure: { success: true, data: { id, name, fields: [...] }, message: ... }
+    const formData = formDataResponse?.data || formDataResponse;
+    return formData;
+  }, [formDataResponse]);
+
+  const sortedFormFields = useMemo(() => {
+    if (!dynamicForm?.fields) {
+      return [];
+    }
+    const fields = Array.isArray(dynamicForm.fields) ? dynamicForm.fields : [];
+    const sorted = [...fields].sort((a: any, b: any) => (a.displayOrder || 0) - (b.displayOrder || 0));
+    return sorted;
+  }, [dynamicForm]);
+
+
+  // Support both state/district/mandal and address_state/address_district/address_mandal (default student form)
+  const selectedState = dynamicFormData.state ?? dynamicFormData.address_state ?? '';
+  const selectedDistrict = dynamicFormData.district ?? dynamicFormData.address_district ?? '';
+
+  const { stateNames, districtNames, mandalNames } = useLocations({
+    stateName: selectedState || undefined,
+    districtName: selectedDistrict || undefined,
+  });
+  const availableDistricts = districtNames;
+  const availableMandals = mandalNames;
+
+  const {
+    schools,
+    colleges,
+    isLoading: institutionsLoading,
+  } = useInstitutions();
+
+  const studentGroup = (dynamicFormData.student_group ?? dynamicFormData.studentGroup ?? '') as string;
+  const normalizedStudentGroup = studentGroup?.toLowerCase().trim();
+  const useSchoolsList = normalizedStudentGroup === '10th';
+  const hasSelectedGroup = Boolean(normalizedStudentGroup);
+  const activeInstitutions = useSchoolsList ? schools : colleges;
+
+  const handleDynamicFieldChange = (fieldName: string, value: any) => {
+    setDynamicFormData((prev) => {
+      const newData = { ...prev, [fieldName]: value };
+      const key = fieldName.toLowerCase();
+      if (key === 'state' || key === 'address_state') {
+        delete newData.district;
+        delete newData.address_district;
+        delete newData.mandal;
+        delete newData.address_mandal;
+      } else if (key === 'district' || key === 'address_district') {
+        delete newData.mandal;
+        delete newData.address_mandal;
+      } else if (key === 'student_group' || key === 'studentgroup') {
+        delete newData.school_or_college_name;
+      }
+      return newData;
+    });
+    setError(null);
+  };
+
+  const isStateField = (field: any) => {
+    const n = (field.fieldName || '').toLowerCase();
+    return n === 'state' || n === 'address_state';
+  };
+  const isDistrictField = (field: any) => {
+    const n = (field.fieldName || '').toLowerCase();
+    return n === 'district' || n === 'address_district';
+  };
+  const isMandalField = (field: any) => {
+    const n = (field.fieldName || '').toLowerCase();
+    return n === 'mandal' || n === 'address_mandal';
+  };
+  const isLocationDropdownField = (field: any) =>
+    isStateField(field) || isDistrictField(field) || isMandalField(field);
+  const isSchoolOrCollegeField = (field: any) =>
+    (field.fieldName || '').toLowerCase() === 'school_or_college_name';
+
+  const normalizeFieldOptions = (rawOptions: any): Array<{ value: string; label: string }> => {
+    let parsed = rawOptions;
+    if (typeof parsed === 'string') {
+      const trimmed = parsed.trim();
+      if (!trimmed) return [];
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        parsed = trimmed.split(',').map((x) => x.trim()).filter(Boolean);
+      }
+    }
+
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((option: any) => {
+        if (typeof option === 'string' || typeof option === 'number') {
+          const text = String(option).trim();
+          return text ? { value: text, label: text } : null;
+        }
+        if (option && typeof option === 'object') {
+          const value = String(option.value ?? option.label ?? '').trim();
+          const label = String(option.label ?? option.value ?? '').trim();
+          if (!value && !label) return null;
+          return { value: value || label, label: label || value };
+        }
+        return null;
+      })
+      .filter(Boolean) as Array<{ value: string; label: string }>;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+
+    // Validate required and format of dynamic form fields
+    if (sortedFormFields.length > 0) {
+      const missingFields: string[] = [];
+      const invalidFields: string[] = [];
+      const dataCollectionType = dynamicFormData.data_collection_type ?? '';
+      const isStaffNameRequired = dataCollectionType === 'Direct' || dataCollectionType === 'Exam Center';
+
+      sortedFormFields.forEach((field: any) => {
+        const value = dynamicFormData[field.fieldName];
+        const isEmpty = value === undefined || value === null || value === '' || (typeof value === 'string' && value.trim() === '');
+        
+        if (field.isRequired && isEmpty) {
+          missingFields.push(field.fieldLabel);
+        } else if (!isEmpty) {
+          // Format validation for non-empty fields
+          const stringValue = String(value).trim();
+          
+          // Phone validation (Type 'tel' or field name contains 'phone', 'mobile', 'contact')
+          const isPhoneField = field.fieldType === 'tel' || 
+                             /phone|mobile|contact/i.test(field.fieldName) || 
+                             /phone|mobile|contact/i.test(field.fieldLabel);
+          
+          if (isPhoneField) {
+            const phoneRegex = /^[6-9]\d{9}$/; // 10 digits starting with 6-9
+            if (!phoneRegex.test(stringValue)) {
+              invalidFields.push(`${field.fieldLabel} (must be a valid 10-digit number)`);
+            }
+          }
+
+          // Email validation
+          if (field.fieldType === 'email' || /email/i.test(field.fieldName)) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(stringValue)) {
+              invalidFields.push(`${field.fieldLabel} (invalid email format)`);
+            }
+          }
+        }
+      });
+
+      // Staff name is required when Data Collection Type is Direct or Exam Center
+      if (isStaffNameRequired) {
+        const staffName = dynamicFormData.staff_name;
+        const staffNameEmpty = staffName === undefined || staffName === null || staffName === '' || (typeof staffName === 'string' && staffName.trim() === '');
+        if (staffNameEmpty) {
+          missingFields.push('Staff Name');
+        }
+      }
+
+      if (missingFields.length > 0 || invalidFields.length > 0) {
+        const errors = [];
+        if (missingFields.length > 0) errors.push(`Required: ${missingFields.join(', ')}`);
+        if (invalidFields.length > 0) errors.push(`Invalid: ${invalidFields.join(', ')}`);
+        
+        setError(errors.join(' | '));
+        setIsSubmitting(false);
+        return;
+      }
+    }
+
+    try {
+      // Build dynamic fields object for submission
+      const dynamicFields: Record<string, any> = {};
+      sortedFormFields.forEach((field: any) => {
+        const value = dynamicFormData[field.fieldName];
+        if (value !== undefined && value !== null && value !== '') {
+          dynamicFields[field.fieldName] = value;
+        }
+      });
+
+      // Extract common field names from dynamic fields (case-insensitive matching)
+      const getFieldValue = (fieldNames: string[]) => {
+        for (const fieldName of fieldNames) {
+          const key = Object.keys(dynamicFields).find(
+            k => k.toLowerCase() === fieldName.toLowerCase()
+          );
+          if (key && dynamicFields[key]) return dynamicFields[key];
+        }
+        return '';
+      };
+
+      // Submit with dynamic fields mapped to expected backend fields
+      await leadAPI.submitPublicLead({
+        name: getFieldValue(['name', 'fullName', 'studentName']) || '',
+        phone: getFieldValue(['phone', 'phoneNumber', 'mobile', 'contactNumber']) || '',
+        email: getFieldValue(['email', 'emailAddress']) || undefined,
+        fatherName: getFieldValue(['fatherName', 'father_name', 'fathersName']) || '',
+        fatherPhone: getFieldValue(['fatherPhone', 'father_phone', 'fathersPhone', 'fatherPhoneNumber']) || '',
+        motherName: getFieldValue(['motherName', 'mother_name', 'mothersName']) || undefined,
+        gender: getFieldValue(['gender']) || undefined,
+        courseInterested: getFieldValue(['courseInterested', 'course', 'courseName']) || undefined,
+        interCollege: getFieldValue(['interCollege', 'college', 'collegeName']) || undefined,
+        rank: getFieldValue(['rank']) ? Number(getFieldValue(['rank'])) : undefined,
+        village: getFieldValue(['village', 'city', 'town', 'address_village_city']) || '',
+        state: getFieldValue(['state']) || '',
+        district: getFieldValue(['district']) || '',
+        mandal: getFieldValue(['mandal', 'tehsil']) || '',
+        isNRI: getFieldValue(['isNRI', 'nri']) === true || getFieldValue(['isNRI', 'nri']) === 'true' || false,
+        quota: 'Not Applicable',
+        applicationStatus: 'Not Provided',
+        source: utmParams.utm_source || 'Public Form',
+        utmSource: utmParams.utm_source || undefined,
+        utmMedium: utmParams.utm_medium || undefined,
+        utmCampaign: utmParams.utm_campaign || undefined,
+        utmTerm: utmParams.utm_term || undefined,
+        utmContent: utmParams.utm_content || undefined,
+        dynamicFields: Object.keys(dynamicFields).length > 0 ? dynamicFields : undefined,
+      });
+
+      // Show success message
+      setShowSuccess(true);
+
+      // Provide a refill function instead of auto-resetting
+      // setTimeout(() => {
+      //   setDynamicFormData({});
+      //   setShowSuccess(false);
+      // }, 3000);
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Failed to submit form. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="w-full min-h-screen bg-transparent flex flex-col">
+      <main className="w-full max-w-3xl mx-auto flex-1 flex flex-col justify-start p-3 sm:p-6 lg:p-8">
+        <div className="w-full bg-white/95 dark:bg-slate-900/95 sm:rounded-2xl sm:shadow-xl sm:border sm:border-slate-200 dark:sm:border-slate-800 flex-1 sm:flex-none">
+          {showSuccess ? (
+            <div className="text-center py-12 sm:py-16 px-4">
+              <div className="text-center py-10 sm:py-12">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-7 h-7 sm:w-8 sm:h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Thank You!</h2>
+                <p className="text-gray-600 mb-6">
+                  Your lead information has been submitted successfully. We will get back to you soon.
+                </p>
+                <Button 
+                  variant="primary" 
+                  onClick={() => {
+                    setDynamicFormData({});
+                    setShowSuccess(false);
+                  }}
+                  className="font-semibold"
+                >
+                  Submit Another Response
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 sm:p-8">
+              <form onSubmit={handleSubmit} className="space-y-5">
+
+
+                {error && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                    {error}
+                  </div>
+                )}
+
+                {/* Show message if no form is loaded */}
+                {!formId && !isLoadingForm && (
+                  <div className="text-center py-8 text-gray-500">
+                    <p>No form is associated with this URL.</p>
+                    <p className="text-sm mt-2">Please use a valid UTM URL with a form selected.</p>
+                  </div>
+                )}
+
+                {/* Dynamic Form Fields from Form Builder */}
+                {isLoadingForm && formId && (
+                  <div className="text-center py-8 text-sm text-gray-500">
+                    Loading form fields...
+                  </div>
+                )}
+
+                {formError && (
+                  <div className="text-center py-8 text-sm text-red-500">
+                    Error loading form. Please try again.
+                  </div>
+                )}
+
+                {sortedFormFields.length > 0 && (
+                  <div>
+                    <h3 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-slate-100 mb-2 sm:mb-6">
+                      {dynamicForm?.name || 'Please fill in your details'}
+                    </h3>
+                    {dynamicForm?.description && (
+                      <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mb-4 sm:mb-6">{dynamicForm.description}</p>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                      {sortedFormFields.map((field: any) => {
+                        const fieldValue = dynamicFormData[field.fieldName] || field.defaultValue || '';
+                        const dataCollectionType = dynamicFormData.data_collection_type ?? '';
+                        const isStaffNameRequired = dataCollectionType === 'Direct' || dataCollectionType === 'Exam Center';
+                        const isFieldRequired = field.isRequired || (field.fieldName === 'staff_name' && isStaffNameRequired);
+
+                        // Location dropdowns: state, district, mandal (or address_*) — render as dropdown regardless of fieldType
+                        if (isLocationDropdownField(field)) {
+                          let dropdownOptions: Array<{ value: string; label: string }> = [];
+                          if (isStateField(field)) {
+                            dropdownOptions = stateNames.map((state) => ({ value: state, label: state }));
+                          } else if (isDistrictField(field)) {
+                            dropdownOptions = availableDistricts.map((district) => ({ value: district, label: district }));
+                          } else if (isMandalField(field)) {
+                            dropdownOptions = availableMandals.map((mandal) => ({ value: mandal, label: mandal }));
+                          }
+                          const disabled =
+                            (isDistrictField(field) && !selectedState) ||
+                            (isMandalField(field) && (!selectedState || !selectedDistrict));
+                          return (
+                            <div key={field._id} className="space-y-1.5">
+                              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 ml-1">
+                                {field.fieldLabel} {isFieldRequired && <span className="text-red-500">*</span>}
+                              </label>
+                              <select
+                                value={fieldValue}
+                                onChange={(e) => handleDynamicFieldChange(field.fieldName, e.target.value)}
+                                required={isFieldRequired}
+                                disabled={disabled}
+                                className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-200 bg-slate-50/50 text-slate-900 focus:outline-none focus:bg-white focus:border-orange-500/50 focus:ring-4 focus:ring-orange-500/10 transition-all hover:bg-white hover:border-slate-300 dark:bg-slate-900/50 dark:border-slate-800 dark:text-slate-100 dark:focus:border-orange-500/50 dark:focus:bg-slate-950 disabled:bg-slate-100 dark:disabled:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <option value="">
+                                  {isDistrictField(field) && !selectedState
+                                    ? 'Select state first'
+                                    : isMandalField(field) && (!selectedState || !selectedDistrict)
+                                    ? 'Select district first'
+                                    : `Select ${field.fieldLabel}`}
+                                </option>
+                                {dropdownOptions.map((option: any) => {
+                                  const optionValue = typeof option === 'string' ? option : option.value;
+                                  const optionLabel = typeof option === 'string' ? option : option.label;
+                                  return (
+                                    <option key={optionValue} value={optionValue}>
+                                      {optionLabel}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                              {field.helpText && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 ml-1">{field.helpText}</p>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        if (isSchoolOrCollegeField(field)) {
+                          const labelSuffix = useSchoolsList ? 'School' : 'College';
+                          const disabled = !hasSelectedGroup || institutionsLoading;
+                          const datalistId = `${field.fieldName}-institutions`;
+                          return (
+                            <div key={field._id} className="space-y-1.5">
+                              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 ml-1">
+                                {field.fieldLabel}{' '}
+                                {isFieldRequired && <span className="text-red-500">*</span>}
+                              </label>
+                              {!hasSelectedGroup && (
+                                <p className="mb-1.5 text-[11px] text-slate-500 dark:text-slate-400 ml-1">
+                                  Select a student group to choose an institution.
+                                </p>
+                              )}
+                              <Input
+                                value={fieldValue}
+                                onChange={(e) =>
+                                  handleDynamicFieldChange(field.fieldName, e.target.value)
+                                }
+                                list={datalistId}
+                                placeholder={
+                                  !hasSelectedGroup
+                                    ? 'Select student group first'
+                                    : institutionsLoading
+                                    ? `Loading ${labelSuffix.toLowerCase()}s...`
+                                    : `Start typing to search ${labelSuffix.toLowerCase()}`
+                                }
+                                disabled={disabled}
+                                className="!py-2.5 !text-sm !rounded-lg"
+                              />
+                              <datalist id={datalistId}>
+                                {activeInstitutions.map((item) => (
+                                  <option key={item.id} value={item.name} />
+                                ))}
+                              </datalist>
+                              {hasSelectedGroup && !institutionsLoading && activeInstitutions.length === 0 && (
+                                <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 ml-1">
+                                  No {labelSuffix.toLowerCase()} names available yet.
+                                </p>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        // Other dropdowns (from field definition)
+                        if (field.fieldType === 'dropdown') {
+                          const dropdownOptions = normalizeFieldOptions(field.options);
+                          return (
+                            <div key={field._id} className="space-y-1.5">
+                              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 ml-1">
+                                {field.fieldLabel} {isFieldRequired && <span className="text-red-500">*</span>}
+                              </label>
+                              <select
+                                value={fieldValue}
+                                onChange={(e) => handleDynamicFieldChange(field.fieldName, e.target.value)}
+                                required={isFieldRequired}
+                                className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-200 bg-slate-50/50 text-slate-900 focus:outline-none focus:bg-white focus:border-orange-500/50 focus:ring-4 focus:ring-orange-500/10 transition-all hover:bg-white hover:border-slate-300 dark:bg-slate-900/50 dark:border-slate-800 dark:text-slate-100 dark:focus:border-orange-500/50 dark:focus:bg-slate-950 disabled:bg-slate-100 dark:disabled:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <option value="">Select {field.fieldLabel}</option>
+                                {dropdownOptions.map((option) => {
+                                  const optionValue = option.value;
+                                  const optionLabel = option.label;
+                                  return (
+                                    <option key={optionValue} value={optionValue}>
+                                      {optionLabel}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                              {field.helpText && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 ml-1">{field.helpText}</p>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        if (field.fieldType === 'radio') {
+                          const radioOptions = normalizeFieldOptions(field.options);
+                          return (
+                            <div key={field._id} className="space-y-2">
+                              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 ml-1 mb-2">
+                                {field.fieldLabel} {isFieldRequired && <span className="text-red-500">*</span>}
+                              </label>
+                              <div className="space-y-2">
+                                {radioOptions.length > 0 && radioOptions.map((option) => (
+                                  <label key={option.value} className="flex items-center gap-2 cursor-pointer group px-1">
+                                    <input
+                                      type="radio"
+                                      name={field.fieldName}
+                                      value={option.value}
+                                      checked={fieldValue === option.value}
+                                      onChange={(e) => handleDynamicFieldChange(field.fieldName, e.target.value)}
+                                      required={isFieldRequired}
+                                      className="w-4 h-4 text-orange-500 border-slate-300 focus:ring-orange-500 dark:border-slate-600 dark:bg-slate-800"
+                                    />
+                                    <span className="text-sm text-slate-700 dark:text-slate-300">{option.label}</span>
+                                  </label>
+                                ))}
+                              </div>
+                              {field.helpText && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 ml-1">{field.helpText}</p>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        if (field.fieldType === 'checkbox') {
+                          return (
+                            <div key={field._id} className="md:col-span-2 px-1">
+                              <label className="flex items-center gap-2 cursor-pointer group">
+                                <input
+                                  type="checkbox"
+                                  checked={fieldValue === true || fieldValue === 'true'}
+                                  onChange={(e) => handleDynamicFieldChange(field.fieldName, e.target.checked)}
+                                  className="w-4 h-4 text-orange-500 border-slate-300 rounded focus:ring-orange-500 focus:ring-2 dark:border-slate-600 dark:bg-slate-800"
+                                />
+                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                  {field.fieldLabel} {isFieldRequired && <span className="text-red-500">*</span>}
+                                </span>
+                              </label>
+                              {field.helpText && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 ml-6">{field.helpText}</p>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        if (field.fieldType === 'textarea') {
+                          return (
+                            <div key={field._id} className="md:col-span-2 space-y-1.5">
+                              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 ml-1">
+                                {field.fieldLabel} {isFieldRequired && <span className="text-red-500">*</span>}
+                              </label>
+                              <textarea
+                                value={fieldValue}
+                                onChange={(e) => handleDynamicFieldChange(field.fieldName, e.target.value)}
+                                placeholder={field.placeholder || ''}
+                                required={isFieldRequired}
+                                rows={4}
+                                className="w-full px-3 py-2.5 text-sm rounded-lg border border-slate-200 bg-slate-50/50 text-slate-900 focus:outline-none focus:bg-white focus:border-orange-500/50 focus:ring-4 focus:ring-orange-500/10 transition-all hover:bg-white hover:border-slate-300 dark:bg-slate-900/50 dark:border-slate-800 dark:text-slate-100 dark:focus:border-orange-500/50 dark:focus:bg-slate-950 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                              />
+                              {field.helpText && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 ml-1">{field.helpText}</p>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        if (field.fieldType === 'file') {
+                          return (
+                            <div key={field._id} className="md:col-span-2 space-y-1.5">
+                              <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 ml-1">
+                                {field.fieldLabel} {isFieldRequired && <span className="text-red-500">*</span>}
+                              </label>
+                              <input
+                                type="file"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    handleDynamicFieldChange(field.fieldName, file.name);
+                                  }
+                                }}
+                                required={isFieldRequired}
+                                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 bg-slate-50/50 text-slate-900 focus:outline-none focus:bg-white focus:border-orange-500/50 focus:ring-4 focus:ring-orange-500/10 transition-all hover:bg-white hover:border-slate-300 dark:bg-slate-900/50 dark:border-slate-800 dark:text-slate-100 dark:focus:border-orange-500/50 dark:focus:bg-slate-950 file:mr-4 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 dark:file:bg-orange-900/30 dark:file:text-orange-400"
+                              />
+                              {field.helpText && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 ml-1">{field.helpText}</p>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        // Default: text, number, email, tel, date
+                        const isPhoneField = field.fieldType === 'tel' || 
+                                           /phone|mobile|contact/i.test(field.fieldName) || 
+                                           /phone|mobile|contact/i.test(field.fieldLabel);
+                        
+                        return (
+                          <div key={field._id}>
+                            <Input
+                              label={`${field.fieldLabel} ${isFieldRequired ? '*' : ''}`}
+                              name={field.fieldName}
+                              type={field.fieldType === 'date' ? 'date' : field.fieldType === 'number' ? 'number' : field.fieldType === 'email' ? 'email' : isPhoneField ? 'tel' : 'text'}
+                              value={fieldValue}
+                              onChange={(e) => {
+                                let val = e.target.value;
+                                if (isPhoneField) {
+                                  // Only allow digits and max 10 characters
+                                  val = val.replace(/\D/g, '').slice(0, 10);
+                                }
+                                handleDynamicFieldChange(field.fieldName, val);
+                              }}
+                              placeholder={field.placeholder || (isPhoneField ? 'e.g. 9876543210' : '')}
+                              required={isFieldRequired}
+                              maxLength={isPhoneField ? 10 : undefined}
+                              pattern={isPhoneField ? "[6-9][0-9]{9}" : undefined}
+                              className="!py-2.5 !text-sm !rounded-lg"
+                            />
+                            {field.helpText && (
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 ml-1">{field.helpText}</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex pt-4 sm:pt-6">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={isSubmitting}
+                    className="w-full sm:w-auto sm:flex-1 h-11 text-sm font-semibold rounded-lg bg-orange-600 hover:bg-orange-700"
+                  >
+                    {isSubmitting ? 'Submitting...' : 'Submit'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+
