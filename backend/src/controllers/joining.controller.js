@@ -12,7 +12,13 @@ import {
   persistAdmissionReference1WithHistory,
   persistAdmissionPhase,
   persistAdmissionCourseBranchUpdate,
+  appendAdmissionApplicationEditHistory,
 } from './admission.controller.js';
+import {
+  computeApplicationFieldChanges,
+  formatFieldChangesSummary,
+  normalizeDob,
+} from '../utils/diffApplicationFields.js';
 import { resolveBtechCourseDisplayName, deriveAdmissionSeriesYear } from '../utils/lateralBatch.util.js';
 import {
   FATHER_PHOTO_REG_KEYS,
@@ -698,7 +704,15 @@ const syncLeadWithJoining = (leadDoc, joiningDoc) => {
   return mutated;
 };
 
-const recordActivity = async ({ leadId, userId, description, statusFrom, statusTo }) => {
+const recordActivity = async ({
+  leadId,
+  userId,
+  description,
+  statusFrom,
+  statusTo,
+  title,
+  changes = [],
+}) => {
   try {
     if (!leadId || !userId) return;
     
@@ -712,10 +726,12 @@ const recordActivity = async ({ leadId, userId, description, statusFrom, statusT
         leadId,
         'joining_update',
         userId,
-        description,
+        title || description || 'Joining form updated',
         JSON.stringify({
+          description: description || null,
           statusFrom: statusFrom || null,
           statusTo: statusTo || null,
+          changes: Array.isArray(changes) ? changes : [],
         }),
       ]
     );
@@ -1077,11 +1093,22 @@ const formatJoining = async (joiningData, pool, options = {}) => {
       phone: joiningData.student_phone || '',
       preferredMobileNumber: joiningData.preferred_mobile_number || '',
       gender: joiningData.student_gender || '',
-      dateOfBirth: joiningData.student_date_of_birth || '',
+      dateOfBirth: normalizeDob(joiningData.student_date_of_birth),
       notes: joiningData.student_notes || '',
       aadhaarNumber: joiningData.student_aadhaar_number || '',
       photo: studentPortrait,
-      isScholarApplicable: joiningData.is_scholar_applicable ? true : false,
+      isScholarApplicable: (() => {
+        if (joiningData.is_scholar_applicable !== null && joiningData.is_scholar_applicable !== undefined) {
+          return Boolean(joiningData.is_scholar_applicable);
+        }
+        if (leadDataRaw && typeof leadDataRaw === 'object' && leadDataRaw.isScholarApplicable !== undefined) {
+          return Boolean(leadDataRaw.isScholarApplicable);
+        }
+        if (registrationFormData && registrationFormData.isScholarApplicable !== undefined) {
+          return Boolean(registrationFormData.isScholarApplicable);
+        }
+        return undefined;
+      })(),
     },
     parents: {
       father: {
@@ -1272,7 +1299,15 @@ const formatJoiningListItem = (joiningData) => {
     studentInfo: {
       name: joiningData.student_name || '',
       phone: joiningData.student_phone || '',
-      isScholarApplicable: joiningData.is_scholar_applicable ? true : false,
+      isScholarApplicable: (() => {
+        if (joiningData.is_scholar_applicable !== null && joiningData.is_scholar_applicable !== undefined) {
+          return Boolean(joiningData.is_scholar_applicable);
+        }
+        if (leadDataRaw && typeof leadDataRaw === 'object' && leadDataRaw.isScholarApplicable !== undefined) {
+          return Boolean(leadDataRaw.isScholarApplicable);
+        }
+        return undefined;
+      })(),
     },
     paymentSummary: {
       totalFee: Number(joiningData.payment_total_fee) || 0,
@@ -2343,6 +2378,7 @@ export const saveJoiningDraft = async (req, res) => {
     }
 
     let joiningIdToUse = null;
+    let previousJoiningRow = null;
     let previousStatus = 'draft';
     let isNewRecord = false;
 
@@ -2358,6 +2394,7 @@ export const saveJoiningDraft = async (req, res) => {
         );
         if (joinings.length > 0) {
           joiningIdToUse = payloadId;
+          previousJoiningRow = joinings[0];
           previousStatus = joinings[0].status;
         } else {
           return errorResponse(res, 'Joining form not found', 404);
@@ -2382,6 +2419,7 @@ export const saveJoiningDraft = async (req, res) => {
         );
         if (joinings.length > 0) {
           joiningIdToUse = joiningId;
+          previousJoiningRow = joinings[0];
           previousStatus = joinings[0].status;
         } else {
           return errorResponse(res, 'Joining form not found', 404);
@@ -2394,6 +2432,7 @@ export const saveJoiningDraft = async (req, res) => {
         );
         if (joinings.length > 0) {
           joiningIdToUse = joinings[0].id;
+          previousJoiningRow = joinings[0];
           previousStatus = joinings[0].status;
         } else {
           const enq = String(lead?.enquiryNumber || '').trim();
@@ -2412,8 +2451,8 @@ export const saveJoiningDraft = async (req, res) => {
           await pool.execute(
             `INSERT INTO joinings (id, lead_id, lead_data, status, reservation_general, reservation_other,
              course, quota, student_name, student_phone, student_gender, student_notes,
-             father_name, father_phone, mother_name, created_by, updated_by, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+             father_name, father_phone, mother_name, is_scholar_applicable, created_by, updated_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
             [
               joiningIdToUse,
               leadId,
@@ -2430,6 +2469,9 @@ export const saveJoiningDraft = async (req, res) => {
               lead?.fatherName || '',
               lead?.fatherPhone || '',
               lead?.motherName || '',
+              safePayload?.studentInfo?.isScholarApplicable !== undefined
+                ? (safePayload.studentInfo.isScholarApplicable ? 1 : 0)
+                : null,
               req.user.id,
               req.user.id,
             ]
@@ -2440,6 +2482,11 @@ export const saveJoiningDraft = async (req, res) => {
 
     if (!joiningIdToUse) {
       return errorResponse(res, 'Joining form not found', 404);
+    }
+
+    if (!previousJoiningRow && joiningIdToUse && !isNewRecord) {
+      const [rows] = await pool.execute('SELECT * FROM joinings WHERE id = ? LIMIT 1', [joiningIdToUse]);
+      previousJoiningRow = rows[0] || null;
     }
 
     const [orphanGuard] = await pool.execute(
@@ -2722,6 +2769,14 @@ export const saveJoiningDraft = async (req, res) => {
         admissionPhase: phase,
       };
     }
+    if (safePayload.studentInfo?.isScholarApplicable !== undefined) {
+      finalPayload.leadData = {
+        ...(finalPayload.leadData && typeof finalPayload.leadData === 'object'
+          ? finalPayload.leadData
+          : {}),
+        isScholarApplicable: safePayload.studentInfo.isScholarApplicable,
+      };
+    }
     // Self-registration leads keep their source even when a reference is attached.
     if (lead && isSelfRegistrationLead(lead) && finalPayload.leadData && typeof finalPayload.leadData === 'object') {
       finalPayload.leadData.source = SELF_REGISTRATION_SOURCE;
@@ -2819,6 +2874,7 @@ export const saveJoiningDraft = async (req, res) => {
         document_bank_passbook = ?,
         document_ration_card = ?,
         reservation_is_ews = ?,
+        is_scholar_applicable = ?,
         draft_updated_at = NOW(),
         submitted_at = ${preserveApprovalTimestamps ? 'submitted_at' : 'NULL'},
         submitted_by = ${preserveApprovalTimestamps ? 'submitted_by' : 'NULL'},
@@ -2841,7 +2897,7 @@ export const saveJoiningDraft = async (req, res) => {
         studentInfo.name || '',
         studentInfo.phone || '',
         studentInfo.gender || '',
-        studentInfo.dateOfBirth || '',
+        normalizeDob(studentInfo.dateOfBirth),
         studentInfo.notes || '',
         studentInfo.aadhaarNumber || null,
         parents.father?.name || '',
@@ -2877,6 +2933,9 @@ export const saveJoiningDraft = async (req, res) => {
         qualifications.otherMediumLabel || '',
         ...joiningDocumentsToSqlParams(documents),
         reservation.isEws === true ? 1 : 0,
+        studentInfo.isScholarApplicable !== undefined
+          ? (studentInfo.isScholarApplicable ? 1 : 0)
+          : null,
         req.user.id,
         joiningIdToUse,
       ]
@@ -2945,6 +3004,19 @@ export const saveJoiningDraft = async (req, res) => {
       }
     }
 
+    if (studentInfo.isScholarApplicable !== undefined) {
+      const [admScholarRows] = await pool.execute(
+        'SELECT id FROM admissions WHERE joining_id = ? LIMIT 1',
+        [joiningIdToUse]
+      );
+      if (admScholarRows.length > 0) {
+        await pool.execute(
+          'UPDATE admissions SET is_scholar_applicable = ?, updated_by = ?, updated_at = NOW() WHERE id = ?',
+          [studentInfo.isScholarApplicable ? 1 : 0, req.user.id, admScholarRows[0].id]
+        );
+      }
+    }
+
     if (payload.reference1 !== undefined) {
       const [admRows] = await pool.execute(
         'SELECT id FROM admissions WHERE joining_id = ? LIMIT 1',
@@ -2992,14 +3064,47 @@ export const saveJoiningDraft = async (req, res) => {
       }
     }
 
+    const [admissionLinkRows] = await pool.execute(
+      'SELECT id FROM admissions WHERE joining_id = ? LIMIT 1',
+      [joiningIdToUse]
+    );
+
+    const fieldChanges = previousJoiningRow
+      ? computeApplicationFieldChanges(previousJoiningRow, finalPayload)
+      : [];
+    const changeSummary = formatFieldChangesSummary(fieldChanges);
+    const activityTitle = fieldChanges.length > 0
+      ? `Application updated (${fieldChanges.length} field${fieldChanges.length === 1 ? '' : 's'})`
+      : 'Joining form saved as draft';
+    const activityDesc =
+      changeSummary ||
+      (previousStatus !== statusToPersist ? '' : 'Saved draft (no field changes)');
+
     // Record activity if lead exists
     if (lead) {
       await recordActivity({
         leadId: lead.id,
         userId: req.user.id,
-        description: 'Joining form saved as draft',
+        title: activityTitle,
+        description: activityDesc,
         statusFrom: previousStatus,
         statusTo: statusToPersist,
+        changes: fieldChanges,
+      });
+    }
+
+    if (admissionLinkRows.length > 0) {
+      await appendAdmissionApplicationEditHistory(pool, {
+        admissionId: admissionLinkRows[0].id,
+        leadId: lead?.id,
+        userId: req.user.id,
+        userName: req.user?.name,
+        kind: 'update',
+        title: activityTitle,
+        description: activityDesc,
+        changes: fieldChanges,
+        statusFrom: previousStatus !== statusToPersist ? previousStatus : null,
+        statusTo: previousStatus !== statusToPersist ? statusToPersist : null,
       });
     }
 
@@ -3761,6 +3866,7 @@ export const approveJoining = async (req, res) => {
           document_cet_rank_card = ?, document_cet_hall_ticket = ?, document_allotment_letter = ?, document_joining_report = ?,
           document_bank_passbook = ?, document_ration_card = ?,
           reservation_is_ews = ?,
+          is_scholar_applicable = ?,
           status = ?, updated_by = ?, updated_at = NOW()
         WHERE id = ?`,
         [
@@ -3827,6 +3933,7 @@ export const approveJoining = async (req, res) => {
           formattedJoining.documents?.bankPassbook || 'pending',
           formattedJoining.documents?.rationCard || 'pending',
           formattedJoining.reservation?.isEws === true ? 1 : 0,
+          formattedJoining.studentInfo?.isScholarApplicable ? 1 : 0,
           'active',
           req.user.id,
           admissionId
@@ -3848,8 +3955,9 @@ export const approveJoining = async (req, res) => {
           document_cet_rank_card, document_cet_hall_ticket, document_allotment_letter, document_joining_report,
           document_bank_passbook, document_ration_card,
           reservation_is_ews,
+          is_scholar_applicable,
           admission_date, created_by, updated_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, NOW(), NOW())`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, NOW(), NOW())`,
         [
           admissionId, // 1
           joining.lead_id || null, // 2
@@ -3917,6 +4025,7 @@ export const approveJoining = async (req, res) => {
           formattedJoining.documents?.bankPassbook || 'pending', // 51
           formattedJoining.documents?.rationCard || 'pending', // 52
           formattedJoining.reservation?.isEws === true ? 1 : 0, // 53 (reservation_is_ews)
+          formattedJoining.studentInfo?.isScholarApplicable ? 1 : 0,
           req.user.id, // 54 (created_by)
           req.user.id, // 55 (updated_by)
         ]

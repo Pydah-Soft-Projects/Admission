@@ -633,7 +633,21 @@ const buildInitialState = (joining?: Joining): JoiningFormState => {
       preferredMobileNumber: joining?.studentInfo?.preferredMobileNumber || '',
       gender: joining?.studentInfo?.gender || '',
       dateOfBirth: normalizeJoiningDateOfBirthInput(joining?.studentInfo?.dateOfBirth),
-      isScholarApplicable: joining?.studentInfo?.isScholarApplicable,
+      isScholarApplicable: (() => {
+        const si = joining?.studentInfo?.isScholarApplicable;
+        if (typeof si === 'boolean') return si;
+        const j = joining as any;
+        if (typeof j?.isScholarApplicable === 'boolean') return j.isScholarApplicable;
+        const ld = j?.leadData as Record<string, unknown> | undefined;
+        if (typeof ld?.isScholarApplicable === 'boolean') return ld.isScholarApplicable;
+        if (ld?.isScholarApplicable === 'true' || ld?.isScholarApplicable === 1) return true;
+        if (ld?.isScholarApplicable === 'false' || ld?.isScholarApplicable === 0) return false;
+        const reg = (j?.registrationFormData || ld?._joiningRegistrationExtras) as Record<string, unknown> | undefined;
+        if (typeof reg?.isScholarApplicable === 'boolean') return reg.isScholarApplicable;
+        if (reg?.isScholarApplicable === 'true' || reg?.isScholarApplicable === 1) return true;
+        if (reg?.isScholarApplicable === 'false' || reg?.isScholarApplicable === 0) return false;
+        return undefined;
+      })(),
     },
     parents: {
       father: {
@@ -3162,6 +3176,9 @@ export function JoiningLeadFormWorkspace({ adminLeadId, publicToken, publicBoots
       }));
       setPaymentSummary(record.paymentSummary || null);
       const base = buildInitialState(record as unknown as Joining);
+      if (base.studentInfo.isScholarApplicable === undefined && joiningRecord?.studentInfo?.isScholarApplicable !== undefined) {
+        base.studentInfo.isScholarApplicable = joiningRecord.studentInfo.isScholarApplicable;
+      }
       setFormState(mergeLeadIntoJoiningFormState(base, lead as LeadLike));
       setHasAppliedAdmissionSnapshot(true);
 

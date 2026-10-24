@@ -24,7 +24,7 @@ export type AdmitCardDocumentChecklist = {
 export type AdmitCardCertificateChecklistRow = {
   name: string;
   optionLabel?: string;
-  status: 'Received' | 'Pending';
+  status: 'Verified' | 'Received' | 'Pending';
 };
 
 export type AdmitCardCertificateChecklist = {
@@ -111,7 +111,7 @@ export function buildAdmitCardCertificateChecklist(
     const certOpts = listCertificateItemOptions(item);
     const entry = parseCertificateChecklistEntry(parsedMap[itemId]);
     const status: AdmitCardCertificateChecklistRow['status'] =
-      entry.status === 'received' ? 'Received' : 'Pending';
+      entry.status === 'received' ? 'Verified' : 'Pending';
     let optionLabel = '';
     if (entry.option && certOpts.length > 0) {
       const match = certOpts.find((o) => o.encoded === entry.option);
@@ -551,6 +551,7 @@ function buildAdmitCardPrintStyles(paperSize: AdmitCardPaperSize): string {
     text-align: center;
     font-weight: 700;
   }
+  .doc-table td.status-verified,
   .doc-table td.status-received {
     color: #15803d;
   }
@@ -661,7 +662,7 @@ function buildAdmitCardPrintStyles(paperSize: AdmitCardPaperSize): string {
 
 type DocumentChecklistRowHtml = {
   label: string;
-  status: 'Received' | 'Pending';
+  status: 'Verified' | 'Received' | 'Pending';
 };
 
 function buildDocumentChecklistRowCells(row?: DocumentChecklistRowHtml, withDivider = false): string {
@@ -671,10 +672,12 @@ function buildDocumentChecklistRowCells(row?: DocumentChecklistRowHtml, withDivi
           <td class="doc-empty${dividerClass}">&nbsp;</td>
           <td class="doc-empty status-cell">&nbsp;</td>`;
   }
-  const statusClass = row.status === 'Received' ? 'status-received' : 'status-pending';
+  const isVerified = row.status === 'Verified' || row.status === 'Received';
+  const statusClass = isVerified ? 'status-verified' : 'status-pending';
+  const displayStatus = isVerified ? 'Verified' : row.status;
   return `
           <td class="${withDivider ? 'doc-col-divider' : ''}">${escapePrintHtml(row.label)}</td>
-          <td class="status-cell ${statusClass}">${escapePrintHtml(row.status)}</td>`;
+          <td class="status-cell ${statusClass}">${escapePrintHtml(displayStatus)}</td>`;
 }
 
 function buildDocumentChecklistTableHtml(
@@ -692,7 +695,7 @@ function buildDocumentChecklistTableHtml(
       const isReceived = statuses[key] === 'received';
       return {
         label,
-        status: isReceived ? 'Received' : 'Pending',
+        status: isReceived ? 'Verified' : 'Pending',
       };
     }
   );
@@ -938,6 +941,7 @@ export function buildAdmitCardStudentFromForm(input: {
       programLevel?: string;
     };
     documents?: JoiningDocuments;
+    reservation?: { isEws?: boolean | null };
   };
   lead?: { name?: string; phone?: string; fatherPhone?: string } | null;
   admissionNumber?: string | null;

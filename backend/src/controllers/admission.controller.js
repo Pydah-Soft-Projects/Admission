@@ -73,6 +73,12 @@ import {
   loadCertificateConfigRoot,
   pendingImportantDocumentLabels,
 } from '../utils/certificateConfig.util.js';
+import {
+  computeApplicationFieldChanges,
+  formatFieldChangesSummary,
+  parseFieldChangesFromText,
+  normalizeDob,
+} from '../utils/diffApplicationFields.js';
 
 const normCourseBranchLabel = (value) =>
   String(value ?? '')
@@ -923,6 +929,23 @@ const readApplicationEditHistory = (leadData) => {
       kind: String(entry.kind || 'update').trim() || 'update',
       title: String(entry.title || 'Application updated').trim() || 'Application updated',
       description: String(entry.description || '').trim(),
+      changes: (Array.isArray(entry.changes) ? entry.changes : [])
+        .filter((c) => {
+          if (c.field?.toLowerCase() === 'date of birth') {
+            return normalizeDob(c.old) !== normalizeDob(c.new);
+          }
+          return true;
+        })
+        .map((c) => {
+          if (c.field?.toLowerCase() === 'date of birth') {
+            return {
+              ...c,
+              old: normalizeDob(c.old),
+              new: normalizeDob(c.new),
+            };
+          }
+          return c;
+        }),
       performedById: entry.performedById ? String(entry.performedById) : null,
       performedByName: String(entry.performedByName || '').trim(),
       at: entry.at ? String(entry.at) : null,
@@ -953,7 +976,7 @@ const isReferenceHistoryEvent = (event) => {
 };
 
 /** Append an application edit event onto admissions.lead_data (and activity_logs when lead exists). */
-const appendAdmissionApplicationEditHistory = async (
+export const appendAdmissionApplicationEditHistory = async (
   pool,
   {
     admissionId,
@@ -967,6 +990,7 @@ const appendAdmissionApplicationEditHistory = async (
     statusTo = null,
     referenceFrom = null,
     referenceTo = null,
+    changes = [],
   }
 ) => {
   if (!admissionId || !userId) return;
@@ -998,6 +1022,7 @@ const appendAdmissionApplicationEditHistory = async (
       kind,
       title: String(title || 'Application updated').trim(),
       description: String(description || '').trim(),
+      changes: Array.isArray(changes) ? changes : [],
       performedById: userId,
       performedByName: resolvedName,
       at: new Date().toISOString(),
@@ -1039,6 +1064,7 @@ const appendAdmissionApplicationEditHistory = async (
               admissionId,
               kind: entry.kind,
               description: entry.description || null,
+              changes: entry.changes || [],
               statusFrom: entry.statusFrom,
               statusTo: entry.statusTo,
               referenceFrom: entry.referenceFrom,
@@ -1081,6 +1107,7 @@ const pushTimelineEvent = (events, event) => {
     kind: String(event.kind || 'update'),
     title: String(event.title || 'Application update'),
     description: String(event.description || '').trim(),
+    changes: Array.isArray(event.changes) ? event.changes : [],
     performedById: event.performedById || null,
     performedByName: String(event.performedByName || '').trim() || '—',
     at: event.at,
@@ -1260,25 +1287,70 @@ export const getAdmissionApplicationHistory = async (req, res) => {
       // Skip duplicates already recorded into admission edit history.
       if (metadata?.source === 'admission_application_history') continue;
 
+      let changes = [];
+      if (Array.isArray(metadata?.changes) && metadata.changes.length > 0) {
+        changes = metadata.changes;
+      } else if (Array.isArray(metadata?.fieldUpdate?.changes) && metadata.fieldUpdate.changes.length > 0) {
+        changes = metadata.fieldUpdate.changes;
+      } else if (Array.isArray(metadata?.fieldChanges) && metadata.fieldChanges.length > 0) {
+        changes = metadata.fieldChanges;
+      } else {
+        const fromComment = parseFieldChangesFromText(log.comment);
+        if (fromComment.length > 0) {
+          changes = fromComment;
+        } else if (metadata?.description) {
+          changes = parseFieldChangesFromText(metadata.description);
+        }
+      }
+
+      changes = changes
+        .filter((c) => {
+          if (c.field?.toLowerCase() === 'date of birth') {
+            return normalizeDob(c.old) !== normalizeDob(c.new);
+          }
+          return true;
+        })
+        .map((c) => {
+          if (c.field?.toLowerCase() === 'date of birth') {
+            return {
+              ...c,
+              old: normalizeDob(c.old),
+              new: normalizeDob(c.new),
+            };
+          }
+          return c;
+        });
+
+      const sFrom = metadata.statusFrom || log.old_status || null;
+      const sTo = metadata.statusTo || log.new_status || null;
+      const hasRealStatusChange =
+        sFrom && sTo && String(sFrom).toLowerCase() !== String(sTo).toLowerCase();
+
+      let desc = String(metadata?.description || '').trim();
+      const isGenericDraftDesc =
+        /^status\s*draft\s*(?:->|→)\s*draft$/i.test(desc) ||
+        /^draft\s*(?:->|→)\s*draft$/i.test(desc);
+
+      if (isGenericDraftDesc) {
+        desc = changes.length > 0 ? '' : 'Saved draft (no field changes)';
+      } else if (!desc && hasRealStatusChange) {
+        desc = `Status changed: ${sFrom} → ${sTo}`;
+      }
+
       const activityEvent = {
         id: `activity-${log.id}`,
         kind: log.type === 'status_change' ? 'status_change' : 'update',
         title: String(log.comment || 'Application updated').trim() || 'Application updated',
-        description:
-          metadata?.description ||
-          (metadata?.statusFrom || metadata?.statusTo
-            ? `Status ${metadata.statusFrom || log.old_status || '—'} → ${
-                metadata.statusTo || log.new_status || '—'
-              }`
-            : ''),
+        description: desc,
+        changes,
         performedById: log.performed_by || null,
         performedByName:
           String(log.performed_by_name || '').trim() ||
           nameById[String(log.performed_by || '')] ||
           '—',
         at: log.created_at,
-        statusFrom: metadata.statusFrom || log.old_status || null,
-        statusTo: metadata.statusTo || log.new_status || null,
+        statusFrom: hasRealStatusChange ? sFrom : null,
+        statusTo: hasRealStatusChange ? sTo : null,
         referenceFrom: metadata.referenceFrom || null,
         referenceTo: metadata.referenceTo || null,
         source: 'activity_log',
@@ -1331,7 +1403,8 @@ export const getAdmissionApplicationHistory = async (req, res) => {
       }
     }
 
-    events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+    // Sort latest on top (descending by timestamp)
+    events.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
     // Light de-dupe: same title + actor within 3s.
     const deduped = [];
@@ -1658,6 +1731,10 @@ export const persistAdmissionRegistrationSidecar = async (pool, admissionId, pay
     admPortraitParams.push(portraits.motherPhoto);
   }
 
+  if (payload.studentInfo?.isScholarApplicable !== undefined) {
+    admNextLd.isScholarApplicable = Boolean(payload.studentInfo.isScholarApplicable);
+  }
+
   await pool.execute(
     `UPDATE admissions SET lead_data = ?${
       admPortraitFields.length ? `, ${admPortraitFields.join(', ')}` : ''
@@ -1688,6 +1765,9 @@ export const persistAdmissionRegistrationSidecar = async (pool, admissionId, pay
   const jNextLd = {
     ...jLd,
     ...(Object.keys(jMergedExtras).length > 0 ? { _joiningRegistrationExtras: jMergedExtras } : {}),
+    ...(payload.studentInfo?.isScholarApplicable !== undefined
+      ? { isScholarApplicable: Boolean(payload.studentInfo.isScholarApplicable) }
+      : {}),
   };
 
   const jPortraits = extractPortraitPhotosFromRegistrationFormData(jMergedExtras);
@@ -1959,10 +2039,22 @@ export const formatAdmission = async (admissionData, pool) => {
       phone: admissionData.student_phone || '',
       preferredMobileNumber: admissionData.preferred_mobile_number || '',
       gender: admissionData.student_gender || '',
-      dateOfBirth: admissionData.student_date_of_birth || '',
+      dateOfBirth: normalizeStudentDobForStorage(admissionData.student_date_of_birth),
       notes: admissionData.student_notes || '',
       aadhaarNumber: admissionData.student_aadhaar_number || '',
       photo: studentPortrait,
+      isScholarApplicable: (() => {
+        if (admissionData.is_scholar_applicable !== null && admissionData.is_scholar_applicable !== undefined) {
+          return Boolean(admissionData.is_scholar_applicable);
+        }
+        if (leadDataRaw && typeof leadDataRaw === 'object' && leadDataRaw.isScholarApplicable !== undefined) {
+          return Boolean(leadDataRaw.isScholarApplicable);
+        }
+        if (registrationFormData && registrationFormData.isScholarApplicable !== undefined) {
+          return Boolean(registrationFormData.isScholarApplicable);
+        }
+        return undefined;
+      })(),
     },
     parents: {
       father: {
@@ -3913,6 +4005,7 @@ export const updateAdmissionById = async (req, res) => {
     if (admissions.length === 0) {
       return errorResponse(res, 'Admission record not found', 404);
     }
+    const admissionData = admissions[0];
 
     const validationErrors = validateAdmissionPayload(req.body);
     if (validationErrors.length > 0) {
@@ -3920,7 +4013,7 @@ export const updateAdmissionById = async (req, res) => {
     }
 
     const payload = { ...req.body };
-    const linkedJoiningId = admissions[0].joining_id || null;
+    const linkedJoiningId = admissionData.joining_id || null;
 
     if (payload.courseInfo !== undefined) {
       await persistAdmissionCourseBranchUpdate(
@@ -3973,6 +4066,14 @@ export const updateAdmissionById = async (req, res) => {
         updateFields.push('student_photo = ?');
         const p = String(payload.studentInfo.photo || '').trim();
         updateParams.push(p || null);
+      }
+      if (payload.studentInfo.isScholarApplicable !== undefined) {
+        updateFields.push('is_scholar_applicable = ?');
+        updateParams.push(
+          payload.studentInfo.isScholarApplicable === null
+            ? null
+            : payload.studentInfo.isScholarApplicable ? 1 : 0
+        );
       }
     }
 
@@ -4153,6 +4254,13 @@ export const updateAdmissionById = async (req, res) => {
       );
     }
 
+    if (admissionData.joining_id && payload.studentInfo?.isScholarApplicable !== undefined) {
+      await pool.execute(
+        'UPDATE joinings SET is_scholar_applicable = ?, updated_by = ?, updated_at = NOW() WHERE id = ?',
+        [payload.studentInfo.isScholarApplicable ? 1 : 0, req.user.id, admissionData.joining_id]
+      );
+    }
+
     // Update related tables if provided
     if (payload.address?.relatives !== undefined || payload.educationHistory !== undefined || payload.siblings !== undefined) {
       await saveAdmissionRelatedTables(pool, admissionId, payload);
@@ -4198,14 +4306,20 @@ export const updateAdmissionById = async (req, res) => {
       })
     );
 
+    const fieldChanges = computeApplicationFieldChanges(admissionData, payload);
+    const changeSummary = formatFieldChangesSummary(fieldChanges);
+
     await appendAdmissionApplicationEditHistory(pool, {
       admissionId,
       leadId: formattedAdmission.leadId,
       userId: req.user.id,
       userName: req.user.name,
       kind: 'update',
-      title: 'Admission application updated',
-      description: 'Admission record saved',
+      title: fieldChanges.length > 0
+        ? `Admission application updated (${fieldChanges.length} field${fieldChanges.length === 1 ? '' : 's'})`
+        : 'Admission application updated',
+      description: changeSummary || 'Admission record saved',
+      changes: fieldChanges,
     });
 
     return successResponse(
@@ -4298,6 +4412,14 @@ export const updateAdmissionByLead = async (req, res) => {
         const p = String(payload.studentInfo.photo || '').trim();
         updateParams.push(p || null);
       }
+      if (payload.studentInfo.isScholarApplicable !== undefined) {
+        updateFields.push('is_scholar_applicable = ?');
+        updateParams.push(
+          payload.studentInfo.isScholarApplicable === null
+            ? null
+            : payload.studentInfo.isScholarApplicable ? 1 : 0
+        );
+      }
     }
 
     if (payload.parents !== undefined) {
@@ -4477,6 +4599,13 @@ export const updateAdmissionByLead = async (req, res) => {
       );
     }
 
+    if (admissionRow.joining_id && payload.studentInfo?.isScholarApplicable !== undefined) {
+      await pool.execute(
+        'UPDATE joinings SET is_scholar_applicable = ?, updated_by = ?, updated_at = NOW() WHERE id = ?',
+        [payload.studentInfo.isScholarApplicable ? 1 : 0, req.user.id, admissionRow.joining_id]
+      );
+    }
+
     // Update related tables if provided
     if (payload.address?.relatives !== undefined || payload.educationHistory !== undefined || payload.siblings !== undefined) {
       await saveAdmissionRelatedTables(pool, admissionId, payload);
@@ -4522,14 +4651,20 @@ export const updateAdmissionByLead = async (req, res) => {
       })
     );
 
+    const fieldChanges = computeApplicationFieldChanges(admissionRow, req.body);
+    const changeSummary = formatFieldChangesSummary(fieldChanges);
+
     await appendAdmissionApplicationEditHistory(pool, {
       admissionId,
       leadId: formattedAdmission.leadId,
       userId: req.user.id,
       userName: req.user.name,
       kind: 'update',
-      title: 'Admission application updated',
-      description: 'Admission record saved',
+      title: fieldChanges.length > 0
+        ? `Admission application updated (${fieldChanges.length} field${fieldChanges.length === 1 ? '' : 's'})`
+        : 'Admission application updated',
+      description: changeSummary || 'Admission record saved',
+      changes: fieldChanges,
     });
 
     return successResponse(

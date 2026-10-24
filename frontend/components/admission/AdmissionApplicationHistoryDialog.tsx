@@ -13,16 +13,25 @@ import {
 import { admissionAPI } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
+export type HistoryChangeItem = {
+  field: string;
+  old?: string | null;
+  new?: string | null;
+};
+
 export type AdmissionApplicationHistoryEvent = {
   id: string;
   kind: string;
   title: string;
   description?: string;
+  changes?: HistoryChangeItem[];
   performedById?: string | null;
   performedByName?: string;
   at: string;
   statusFrom?: string | null;
   statusTo?: string | null;
+  referenceFrom?: string | null;
+  referenceTo?: string | null;
   source?: string;
 };
 
@@ -68,6 +77,50 @@ const kindDot = (kind: string) => {
   return 'bg-slate-400';
 };
 
+function normalizeClientDob(val?: string | null): string {
+  if (!val) return '';
+  const raw = String(val).trim();
+  const ymd = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (ymd) {
+    const [, year, month, day] = ymd;
+    return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+  }
+  const dmy = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (dmy) {
+    const [, day, month, year] = dmy;
+    return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+  }
+  return raw;
+}
+
+function parseClientFieldChanges(text?: string): HistoryChangeItem[] {
+  if (!text || typeof text !== 'string') return [];
+  const changes: HistoryChangeItem[] = [];
+  const regex = /([^,:(]+?)\s*\(([^)]*?)\s*(?:->|→)\s*([^)]*?)\)/g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const field = match[1].trim();
+    if (field.toLowerCase() === 'status') continue;
+    let oldVal = match[2].trim();
+    let newVal = match[3].trim();
+    if (field.toLowerCase() === 'date of birth') {
+      const normOld = normalizeClientDob(oldVal);
+      const normNew = normalizeClientDob(newVal);
+      if (normOld && normNew && normOld === normNew) {
+        continue;
+      }
+      oldVal = normOld || oldVal;
+      newVal = normNew || newVal;
+    }
+    changes.push({
+      field,
+      old: oldVal === 'empty' || oldVal === '—' || !oldVal ? '' : oldVal,
+      new: newVal === 'empty' || newVal === '—' || !newVal ? '' : newVal,
+    });
+  }
+  return changes;
+}
+
 export function AdmissionApplicationHistoryDialog({
   open,
   onOpenChange,
@@ -86,7 +139,8 @@ export function AdmissionApplicationHistoryDialog({
 
   const events = useMemo(() => {
     const list = (data?.events || []) as AdmissionApplicationHistoryEvent[];
-    return Array.isArray(list) ? list : [];
+    if (!Array.isArray(list)) return [];
+    return [...list].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
   }, [data]);
 
   return (
@@ -95,7 +149,7 @@ export function AdmissionApplicationHistoryDialog({
         <DialogHeader className="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
           <DialogTitle>Application edit history</DialogTitle>
           <DialogDescription>
-            Timeline of changes from the initial entry to the latest update
+            Timeline of changes with the latest updates on top
             {admissionNumber ? ` for admission #${admissionNumber}` : ''}.
           </DialogDescription>
         </DialogHeader>
@@ -123,50 +177,132 @@ export function AdmissionApplicationHistoryDialog({
             </p>
           ) : (
             <ol className="relative space-y-0 border-l border-slate-200 pl-5 dark:border-slate-700">
-              {events.map((event, index) => (
-                <li key={event.id || `${event.at}-${index}`} className="relative pb-6 last:pb-0">
-                  <span
-                    className={cn(
-                      'absolute -left-[1.4rem] top-1.5 h-2.5 w-2.5 rounded-full ring-4 ring-white dark:ring-slate-900',
-                      kindDot(event.kind)
-                    )}
-                  />
-                  <div className="rounded-xl border border-slate-200 bg-white/90 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          {event.title}
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                          {formatDateTime(event.at)}
-                        </p>
+              {events.map((event, index) => {
+                const rawChanges =
+                  event.changes && event.changes.length > 0
+                    ? event.changes
+                    : parseClientFieldChanges(event.description);
+
+                const effectiveChanges = rawChanges
+                  .filter((c) => {
+                    if (c.field?.toLowerCase() === 'date of birth') {
+                      return normalizeClientDob(c.old) !== normalizeClientDob(c.new);
+                    }
+                    return true;
+                  })
+                  .map((c) => {
+                    if (c.field?.toLowerCase() === 'date of birth') {
+                      return {
+                        ...c,
+                        old: normalizeClientDob(c.old) || c.old,
+                        new: normalizeClientDob(c.new) || c.new,
+                      };
+                    }
+                    return c;
+                  });
+
+                const hasChanges = effectiveChanges.length > 0;
+
+                const showStatusChange = Boolean(
+                  event.statusFrom &&
+                    event.statusTo &&
+                    String(event.statusFrom).trim().toLowerCase() !==
+                      String(event.statusTo).trim().toLowerCase()
+                );
+
+                const isGenericStatusDesc =
+                  /^status\s*draft\s*(?:->|→)\s*draft$/i.test(event.description || '') ||
+                  /^draft\s*(?:->|→)\s*draft$/i.test(event.description || '');
+
+                const showDescription =
+                  event.description &&
+                  !isGenericStatusDesc &&
+                  !hasChanges &&
+                  !event.description.toLowerCase().startsWith('status changed:');
+
+                return (
+                  <li key={event.id || `${event.at}-${index}`} className="relative pb-6 last:pb-0">
+                    <span
+                      className={cn(
+                        'absolute -left-[1.4rem] top-1.5 h-2.5 w-2.5 rounded-full ring-4 ring-white dark:ring-slate-900',
+                        kindDot(event.kind)
+                      )}
+                    />
+                    <div className="rounded-xl border border-slate-200 bg-white/90 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            {event.title}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                            {formatDateTime(event.at)}
+                          </p>
+                        </div>
+                        <span
+                          className={cn(
+                            'inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                            kindStyles(event.kind)
+                          )}
+                        >
+                          {event.kind || 'update'}
+                        </span>
                       </div>
-                      <span
-                        className={cn(
-                          'inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                          kindStyles(event.kind)
-                        )}
-                      >
-                        {event.kind || 'update'}
-                      </span>
+                      <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
+                        <span className="font-medium">By:</span>{' '}
+                        {event.performedByName?.trim() || '—'}
+                      </p>
+
+                      {hasChanges ? (
+                        <div className="mt-2.5 rounded-lg border border-slate-200/80 bg-slate-50/70 p-2.5 dark:border-slate-800 dark:bg-slate-800/40">
+                          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            Changed Details ({effectiveChanges.length})
+                          </p>
+                          <div className="divide-y divide-slate-200/60 text-xs dark:divide-slate-700/60">
+                            {effectiveChanges.map((c, i) => (
+                              <div
+                                key={i}
+                                className="flex flex-wrap items-baseline justify-between gap-2 py-1.5 first:pt-1 last:pb-0.5"
+                              >
+                                <span className="font-medium text-slate-800 dark:text-slate-200">
+                                  {c.field}
+                                </span>
+                                <div className="flex items-center gap-1.5 text-right font-mono text-[11px]">
+                                  <span className="text-rose-600 line-through dark:text-rose-400/80">
+                                    {c.old || '—'}
+                                  </span>
+                                  <span className="text-slate-400">→</span>
+                                  <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                                    {c.new || '—'}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {showDescription ? (
+                        <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-300">
+                          {event.description}
+                        </p>
+                      ) : null}
+
+                      {showStatusChange ? (
+                        <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                          Status changed:{' '}
+                          <span className="font-medium text-slate-400 line-through">
+                            {event.statusFrom || '—'}
+                          </span>{' '}
+                          →{' '}
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">
+                            {event.statusTo || '—'}
+                          </span>
+                        </p>
+                      ) : null}
                     </div>
-                    <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
-                      <span className="font-medium">By:</span>{' '}
-                      {event.performedByName?.trim() || '—'}
-                    </p>
-                    {event.description ? (
-                      <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-300">
-                        {event.description}
-                      </p>
-                    ) : null}
-                    {event.statusFrom || event.statusTo ? (
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                        Status: {event.statusFrom || '—'} → {event.statusTo || '—'}
-                      </p>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ol>
           )}
         </div>

@@ -81,6 +81,22 @@ function MaskedPhoneField({
   );
 }
 
+function formatDobDisplay(value?: string | null): string {
+  if (!value) return '—';
+  const raw = String(value).trim();
+  const ymd = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (ymd) {
+    const [, year, month, day] = ymd;
+    return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+  }
+  const dmy = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (dmy) {
+    const [, day, month, year] = dmy;
+    return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+  }
+  return raw;
+}
+
 function safeProfilePhotoSrc(url?: string | null): string | null {
   const s = String(url ?? '').trim();
   if (!s) return null;
@@ -442,8 +458,16 @@ export function AdmissionStudentProfileView({
                 onToggle={onTogglePhone}
               />
               <ProfileField label="Father name" value={fatherName} />
-              <ProfileField label="Date of birth" value={admission.studentInfo?.dateOfBirth} />
+              <ProfileField label="Date of birth" value={formatDobDisplay(admission.studentInfo?.dateOfBirth)} />
               <ProfileField label="Gender" value={admission.studentInfo?.gender} />
+              <ProfileField
+                label="Scholar Applicable"
+                value={
+                  admission.studentInfo?.isScholarApplicable !== undefined
+                    ? admission.studentInfo.isScholarApplicable ? 'Yes' : 'No'
+                    : undefined
+                }
+              />
               <ProfileField label="APAAR ID" value={apaarId || '—'} mono />
               <div>
                 <div className="flex items-center justify-between gap-2">

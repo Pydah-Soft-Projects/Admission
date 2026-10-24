@@ -642,7 +642,7 @@ async function resolvePrintDocumentSummary(
         if (built?.rows?.length) {
           for (const row of built.rows) {
             const label = row.optionLabel ? `${row.name} — ${row.optionLabel}` : row.name;
-            if (row.status === 'Received') received.push(label);
+            if (row.status === 'Received' || row.status === 'Verified') received.push(label);
             else notReceived.push(label);
           }
         }
