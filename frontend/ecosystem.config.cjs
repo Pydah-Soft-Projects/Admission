@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'adm-frontend',
       script: 'node_modules/next/dist/bin/next',
-      args: 'start',
+      args: 'start -p 3001',
       cwd: './',
       instances: 1,
       autorestart: true,
