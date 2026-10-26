@@ -1284,6 +1284,9 @@ const formatJoiningListItem = (joiningData) => {
 
   const hasCollege = Number(joiningData.list_has_college) === 1;
 
+  const studentName = joiningData.student_name || joiningData.lead_name || '';
+  const studentPhone = joiningData.student_phone || joiningData.lead_phone || '';
+
   return {
     _id: joiningData.id,
     id: joiningData.id,
@@ -1294,17 +1297,19 @@ const formatJoiningListItem = (joiningData) => {
       branchId: normalizedJoiningBranchId,
       course: courseLabel,
       branch: joiningData.branch || '',
-      quota: joiningData.quota || '',
+      quota: joiningData.quota || joiningData.lead_quota || '',
     },
     studentInfo: {
-      name: joiningData.student_name || '',
-      phone: joiningData.student_phone || '',
+      name: studentName,
+      phone: studentPhone,
       isScholarApplicable: (() => {
         if (joiningData.is_scholar_applicable !== null && joiningData.is_scholar_applicable !== undefined) {
           return Boolean(joiningData.is_scholar_applicable);
         }
-        if (leadDataRaw && typeof leadDataRaw === 'object' && leadDataRaw.isScholarApplicable !== undefined) {
-          return Boolean(leadDataRaw.isScholarApplicable);
+        if (joiningData.list_is_scholar_applicable !== null && joiningData.list_is_scholar_applicable !== undefined) {
+          const v = String(joiningData.list_is_scholar_applicable).trim().toLowerCase();
+          if (v === 'true' || v === '1') return true;
+          if (v === 'false' || v === '0') return false;
         }
         return undefined;
       })(),
@@ -1319,25 +1324,18 @@ const formatJoiningListItem = (joiningData) => {
     // Minimal extras so Approve gate (`joiningHasManagedCourseAndBranch`) still works.
     registrationFormData: hasCollege ? { college_id: '1' } : {},
     hasCollege,
-    ...(joiningData.lead_id &&
-    (joiningData.lead_name != null ||
-      joiningData.lead_enquiry_number != null ||
-      joiningData.lead_phone != null)
-      ? {
-          lead: {
-            name: joiningData.lead_name || '',
-            phone: joiningData.lead_phone || '',
-            enquiryNumber: joiningData.lead_enquiry_number || '',
-            hallTicketNumber: joiningData.lead_hall_ticket_number || '',
-            leadStatus: joiningData.lead_lead_status || '',
-            courseInterested: joiningData.lead_course_interested || '',
-            mandal: joiningData.lead_mandal || '',
-            district: joiningData.lead_district || '',
-            quota: joiningData.lead_quota || '',
-            fatherPhone: joiningData.lead_father_phone || '',
-          },
-        }
-      : {}),
+    lead: {
+      name: joiningData.lead_name || studentName || '',
+      phone: joiningData.lead_phone || studentPhone || '',
+      enquiryNumber: joiningData.lead_enquiry_number || '',
+      hallTicketNumber: joiningData.lead_hall_ticket_number || '',
+      leadStatus: joiningData.lead_lead_status || '',
+      courseInterested: joiningData.lead_course_interested || joiningData.course || '',
+      mandal: joiningData.lead_mandal || '',
+      district: joiningData.lead_district || '',
+      quota: joiningData.lead_quota || joiningData.quota || '',
+      fatherPhone: joiningData.lead_father_phone || '',
+    },
     updatedAt: joiningData.updated_at,
     createdAt: joiningData.created_at,
     ...(Object.prototype.hasOwnProperty.call(joiningData, 'list_admission_id')
@@ -1503,7 +1501,9 @@ export const listJoinings = async (req, res) => {
       `SELECT j.id, j.lead_id, j.status, j.student_name, j.student_phone, j.course, j.branch, j.quota,
               j.course_id, j.branch_id, j.managed_course_id, j.managed_branch_id,
               j.payment_total_fee, j.payment_total_paid, j.payment_balance, j.payment_currency, j.payment_status,
+              j.is_scholar_applicable,
               j.created_at, j.updated_at,
+              JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$.isScholarApplicable')) AS list_is_scholar_applicable,
               JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$._joiningManagedCourseId')) AS list_managed_course_id,
               JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$._joiningManagedBranchId')) AS list_managed_branch_id,
               JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$._joiningRegistrationExtras.student_status')) AS list_student_status,
@@ -1517,10 +1517,16 @@ export const listJoinings = async (req, res) => {
                   OR NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$._joiningRegistrationExtras.college'))), '') IS NOT NULL
                 THEN 1 ELSE 0
               END AS list_has_college,
-              l.name as lead_name, l.phone as lead_phone, l.hall_ticket_number as lead_hall_ticket_number,
-              l.enquiry_number as lead_enquiry_number, l.lead_status as lead_lead_status,
-              l.course_interested as lead_course_interested, l.mandal as lead_mandal, l.district as lead_district,
-              l.quota as lead_quota, l.father_phone as lead_father_phone,
+              COALESCE(NULLIF(TRIM(l.name), ''), NULLIF(TRIM(j.student_name), ''), JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$.name'))) AS lead_name,
+              COALESCE(NULLIF(TRIM(l.phone), ''), NULLIF(TRIM(j.student_phone), ''), JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$.phone'))) AS lead_phone,
+              COALESCE(NULLIF(TRIM(l.enquiry_number), ''), JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$.enquiryNumber'))) AS lead_enquiry_number,
+              COALESCE(NULLIF(TRIM(l.father_phone), ''), NULLIF(TRIM(j.father_phone), ''), JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$.fatherPhone'))) AS lead_father_phone,
+              COALESCE(NULLIF(TRIM(l.quota), ''), NULLIF(TRIM(j.quota), ''), JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$.quota'))) AS lead_quota,
+              COALESCE(NULLIF(TRIM(l.course_interested), ''), NULLIF(TRIM(j.course), ''), JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$.courseInterested'))) AS lead_course_interested,
+              COALESCE(NULLIF(TRIM(l.mandal), ''), JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$.mandal'))) AS lead_mandal,
+              COALESCE(NULLIF(TRIM(l.district), ''), JSON_UNQUOTE(JSON_EXTRACT(j.lead_data, '$.district'))) AS lead_district,
+              l.hall_ticket_number as lead_hall_ticket_number,
+              l.lead_status as lead_lead_status,
               a.id AS list_admission_id, a.admission_number AS list_admission_number,
               a.status AS list_admission_status
        FROM joinings j
