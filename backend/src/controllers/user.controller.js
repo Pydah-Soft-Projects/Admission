@@ -10,6 +10,7 @@ import {
   getRequestAuditMeta,
   recordUserAuditLog,
 } from '../utils/recordUserAuditLog.js';
+import { mergeEffectivePermissions, resolveEffectivePermissions } from '../utils/role.util.js';
 
 const VALID_ROLES = ['Super Admin', 'Sub Super Admin', 'Student Counselor', 'Data Entry User', 'PRO'];
 
@@ -523,6 +524,20 @@ const sanitizePermissions = (permissions = {}) => {
       }
       return;
     }
+    if (key === 'revokedPermissions') {
+      if (Array.isArray(value)) {
+        sanitized[key] = value.filter((v) => typeof v === 'string');
+      } else if (value && typeof value === 'object') {
+        sanitized[key] = Object.keys(value).filter((k) => value[k] === true || value[k] === 'true');
+      }
+      return;
+    }
+    if (key === 'extraPermissions') {
+      if (value && typeof value === 'object') {
+        sanitized[key] = sanitizePermissions(value);
+      }
+      return;
+    }
     if (!value || typeof value !== 'object') return;
     const access = Boolean(value.access);
     const permission = value.permission === 'write' ? 'write' : 'read';
@@ -605,6 +620,27 @@ export const getUsers = async (req, res) => {
     const formattedUsers = users.map(formatUser);
 
     await hydrateUserRowsFromHrms(formattedUsers, 'getUsers');
+
+    // Merge baseline permissions from role_configurations into effective user permissions
+    try {
+      const [roleConfigs] = await pool.execute('SELECT id, name, permissions FROM role_configurations');
+      const roleMap = new Map();
+      (roleConfigs || []).forEach((rc) => {
+        if (rc.name) {
+          roleMap.set(String(rc.name).trim().toLowerCase(), rc.permissions);
+        }
+        if (rc.id) {
+          roleMap.set(String(rc.id).trim().toLowerCase(), rc.permissions);
+        }
+      });
+
+      formattedUsers.forEach((u) => {
+        const rKey = String(u.roleName || '').trim().toLowerCase();
+        u.permissions = mergeEffectivePermissions(roleMap.get(rKey), u.permissions, u.roleName);
+      });
+    } catch (roleMapErr) {
+      console.error('Failed to merge role configs in getUsers:', roleMapErr);
+    }
 
     // Resolve manager id to a small object so list/card views match detail modal lookups
     const userById = Object.fromEntries(formattedUsers.map((u) => [String(u._id), u]));
@@ -698,6 +734,7 @@ export const getUser = async (req, res) => {
     }
 
     const user = formatUser(users[0]);
+    user.permissions = await resolveEffectivePermissions(pool, user.roleName, user.permissions);
 
     // If manager (not admin), check if the requested user is in their team
     if (isManager && !isAdmin) {
@@ -836,6 +873,7 @@ export const createUser = async (req, res) => {
     );
 
     const user = formatUser(users[0]);
+    user.permissions = await resolveEffectivePermissions(pool, user.roleName, user.permissions);
     const actorId = req.user?.id || req.user?._id || null;
     const actorName = req.user?.name || null;
     const { ipAddress, userAgent } = getRequestAuditMeta(req);
@@ -1148,6 +1186,7 @@ export const updateUser = async (req, res) => {
     );
 
     const user = formatUser(updatedUsers[0]);
+    user.permissions = await resolveEffectivePermissions(pool, user.roleName, user.permissions);
     const afterSnap = snapshotUserForAudit(updatedUsers[0]);
     const changes = diffUserAuditSnapshots(beforeSnap, afterSnap, { passwordChanged });
     if (Object.keys(changes).length > 0) {
@@ -1535,18 +1574,51 @@ export const updateRoleConfiguration = async (req, res) => {
     // If role name changed, update existing users with this role_name
     if (!isSuperAdminRole && updatedName !== role.name) {
       await pool.execute(
-        'UPDATE users SET role_name = ? WHERE LOWER(TRIM(role_name)) = LOWER(TRIM(?))',
-        [updatedName, role.name]
+        'UPDATE users SET role_name = ? WHERE LOWER(TRIM(role_name)) = LOWER(TRIM(?)) OR LOWER(TRIM(role_name)) = LOWER(TRIM(?))',
+        [updatedName, role.name, role.id]
       );
     }
 
-    // Propagate updated baseline permissions to users assigned to this role (excluding Sub Super Admin who have custom individual permissions)
+    // Propagate updated baseline permissions to users assigned to this role (preserving custom lead sources and individual extra permissions)
     if (role.name !== 'Sub Super Admin' && updatedPerms) {
       try {
-        await pool.execute(
-          'UPDATE users SET permissions = ? WHERE LOWER(TRIM(role_name)) = LOWER(TRIM(?))',
-          [updatedPerms, updatedName]
+        const parsedNewRolePerms = typeof updatedPerms === 'string' ? JSON.parse(updatedPerms) : (updatedPerms || {});
+        const [roleUsers] = await pool.execute(
+          'SELECT id, permissions FROM users WHERE LOWER(TRIM(role_name)) = LOWER(TRIM(?)) OR LOWER(TRIM(role_name)) = LOWER(TRIM(?)) OR LOWER(TRIM(role_name)) = LOWER(TRIM(?))',
+          [updatedName, role.name, role.id]
         );
+        for (const u of roleUsers) {
+          let userExistingPerms = {};
+          try {
+            userExistingPerms = typeof u.permissions === 'string' ? JSON.parse(u.permissions || '{}') : (u.permissions || {});
+          } catch {
+            userExistingPerms = {};
+          }
+          const mergedUserPerms = { ...parsedNewRolePerms };
+          if (Array.isArray(userExistingPerms.allowedSources)) {
+            mergedUserPerms.allowedSources = userExistingPerms.allowedSources;
+          }
+          if (Array.isArray(userExistingPerms.revokedPermissions)) {
+            mergedUserPerms.revokedPermissions = userExistingPerms.revokedPermissions;
+            userExistingPerms.revokedPermissions.forEach((rk) => {
+              delete mergedUserPerms[rk];
+              if (rk === 'users') delete mergedUserPerms['userManagement'];
+              if (rk === 'userManagement') delete mergedUserPerms['users'];
+            });
+          }
+          if (userExistingPerms.extraPermissions && typeof userExistingPerms.extraPermissions === 'object') {
+            mergedUserPerms.extraPermissions = userExistingPerms.extraPermissions;
+            Object.entries(userExistingPerms.extraPermissions).forEach(([k, v]) => {
+              if (v && typeof v === 'object' && v.access) {
+                mergedUserPerms[k] = v;
+              }
+            });
+          }
+          await pool.execute(
+            'UPDATE users SET permissions = ? WHERE id = ?',
+            [JSON.stringify(mergedUserPerms), u.id]
+          );
+        }
       } catch (propagateErr) {
         console.error('Failed to propagate permissions to users:', propagateErr);
       }

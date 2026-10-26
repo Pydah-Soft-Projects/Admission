@@ -12,6 +12,7 @@ import { Card } from '@/components/ui/Card';
 import { SuperAdminDashboardSkeleton } from '@/components/ui/Skeleton';
 import { showToast } from '@/lib/toast';
 import { useTheme } from '@/app/providers';
+import { getFirstAccessiblePage } from '@/constants/permissions';
 import {
   ResponsiveContainer,
   LineChart,
@@ -104,7 +105,12 @@ export default function SuperAdminDashboard() {
       return;
     }
     if (currentUser.roleName !== 'Super Admin' && currentUser.roleName !== 'Sub Super Admin') {
-      router.push('/user/dashboard');
+      const dest = getFirstAccessiblePage(currentUser.permissions || {}, currentUser.roleName);
+      if (dest && dest !== '/superadmin/dashboard') {
+        router.replace(dest);
+      } else {
+        router.replace('/user/dashboard');
+      }
       return;
     }
   }, [router]);

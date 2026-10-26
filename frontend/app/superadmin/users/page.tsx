@@ -21,8 +21,6 @@ import {
   defaultAdmissionTabExtras,
   defaultJoiningPageExtras,
   defaultJoiningPermissionExtras,
-  enabledAdmissionTabLabels,
-  enabledJoiningPageLabels,
   joiningExtrasFromStored,
   joiningPagesFromStored,
   JOINING_PERMISSION_KEY,
@@ -561,10 +559,217 @@ const UserManagementPage = () => {
   // New state for user detail modal
   const [showUserDetail, setShowUserDetail] = useState(false);
   const [selectedUserDetail, setSelectedUserDetail] = useState<User | null>(null);
+  const [detailPermissionsDraft, setDetailPermissionsDraft] = useState<Record<string, unknown>>({});
+  const [detailAllowedSources, setDetailAllowedSources] = useState<string[]>([]);
+  const [isEditingDetailSources, setIsEditingDetailSources] = useState(false);
+  const [detailSourceSearch, setDetailSourceSearch] = useState('');
+  const [isSavingDetailPermissions, setIsSavingDetailPermissions] = useState(false);
+
+  useEffect(() => {
+    if (selectedUserDetail) {
+      setDetailPermissionsDraft(
+        selectedUserDetail.permissions ? JSON.parse(JSON.stringify(selectedUserDetail.permissions)) : {}
+      );
+      setDetailAllowedSources(
+        Array.isArray(selectedUserDetail.permissions?.allowedSources)
+          ? [...selectedUserDetail.permissions.allowedSources]
+          : []
+      );
+      setIsEditingDetailSources(false);
+      setDetailSourceSearch('');
+    }
+  }, [selectedUserDetail]);
+
+  useEffect(() => {
+    if (selectedUserDetail?._id && Array.isArray(users) && users.length > 0) {
+      const fresh = users.find((u) => u._id === selectedUserDetail._id);
+      if (fresh && fresh !== selectedUserDetail) {
+        setSelectedUserDetail(fresh);
+      }
+    }
+  }, [users, selectedUserDetail]);
+
+  const currentDetailRoleConfig = useMemo(() => {
+    if (!selectedUserDetail?.roleName) return null;
+    const target = String(selectedUserDetail.roleName).trim().toLowerCase();
+    return configuredRoles.find((r) => String(r.name).trim().toLowerCase() === target || String(r.id).trim().toLowerCase() === target) || null;
+  }, [selectedUserDetail?.roleName, configuredRoles]);
+
+  const detailRoleBaseline = useMemo(() => {
+    const raw = currentDetailRoleConfig?.permissions;
+    if (!raw) return {};
+    if (typeof raw === 'string') {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return {};
+      }
+    }
+    return (raw || {}) as Record<
+      string,
+      { access?: boolean; permission?: 'read' | 'write' }
+    >;
+  }, [currentDetailRoleConfig]);
+
+  const handleToggleDetailModulePermission = (moduleKey: string, isFromRole: boolean) => {
+    setDetailPermissionsDraft((prev) => {
+      const next = { ...prev };
+
+      if (isFromRole) {
+        // Toggle revocation for role baseline permission
+        const currentRevoked = Array.isArray(next.revokedPermissions)
+          ? [...(next.revokedPermissions as string[])]
+          : [];
+        const isCurrentlyRevoked =
+          currentRevoked.includes(moduleKey) ||
+          (moduleKey === 'users' && currentRevoked.includes('userManagement'));
+
+        let nextRevoked: string[];
+        if (isCurrentlyRevoked) {
+          // Re-enable (restore to role baseline)
+          nextRevoked = currentRevoked.filter(
+            (k) => k !== moduleKey && k !== (moduleKey === 'users' ? 'userManagement' : '')
+          );
+        } else {
+          // Revoke for this user
+          nextRevoked = [...currentRevoked, moduleKey];
+          if (moduleKey === 'users') {
+            nextRevoked.push('userManagement');
+          }
+        }
+        next.revokedPermissions = nextRevoked;
+        return next;
+      }
+
+      // Non-role permission: toggle extra permission
+      const currentExtras = {
+        ...((next.extraPermissions as Record<string, ModulePermission>) || {}),
+      };
+      const current =
+        currentExtras[moduleKey] ||
+        (moduleKey === 'users' ? currentExtras.userManagement : undefined) ||
+        {};
+      const newAccess = !current.access;
+      if (newAccess) {
+        currentExtras[moduleKey] = {
+          access: true,
+          permission: current.permission || 'read',
+          ...(moduleKey === JOINING_PERMISSION_KEY
+            ? {
+                ...defaultJoiningPermissionExtras(),
+                ...defaultJoiningPageExtras(),
+                ...defaultAdmissionTabExtras(),
+              }
+            : {}),
+        };
+        if (moduleKey === 'users') currentExtras.userManagement = currentExtras[moduleKey];
+      } else {
+        delete currentExtras[moduleKey];
+        if (moduleKey === 'users') delete currentExtras['userManagement'];
+        if (moduleKey === 'userManagement') delete currentExtras['users'];
+      }
+      next.extraPermissions = currentExtras;
+      return next;
+    });
+  };
+
+  const handleChangeDetailExtraPermissionLevel = (
+    moduleKey: string,
+    permission: 'read' | 'write'
+  ) => {
+    setDetailPermissionsDraft((prev) => {
+      const next = { ...prev };
+      const currentExtras = {
+        ...((next.extraPermissions as Record<string, ModulePermission>) || {}),
+      };
+      const current =
+        currentExtras[moduleKey] ||
+        (moduleKey === 'users' ? currentExtras.userManagement : undefined) ||
+        {};
+      currentExtras[moduleKey] = {
+        ...current,
+        access: true,
+        permission,
+      };
+      if (moduleKey === 'users') {
+        currentExtras.userManagement = currentExtras[moduleKey];
+      }
+      next.extraPermissions = currentExtras;
+      return next;
+    });
+  };
+
+  const handleSaveDetailPermissionsAndSources = async () => {
+    if (!selectedUserDetail) return;
+    setIsSavingDetailPermissions(true);
+    try {
+      const extraPerms = (detailPermissionsDraft.extraPermissions || {}) as Record<string, ModulePermission>;
+      const revokedPerms = Array.isArray(detailPermissionsDraft.revokedPermissions)
+        ? (detailPermissionsDraft.revokedPermissions as string[])
+        : [];
+
+      const toSave: Record<string, unknown> = {
+        ...detailRoleBaseline,
+        allowedSources: detailAllowedSources,
+        extraPermissions: extraPerms,
+        revokedPermissions: revokedPerms,
+      };
+
+      // Strip revoked permissions from toSave top level
+      revokedPerms.forEach((k) => {
+        delete toSave[k];
+        if (k === 'users') delete toSave['userManagement'];
+        if (k === 'userManagement') delete toSave['users'];
+      });
+
+      // Overlay extra permissions
+      Object.entries(extraPerms).forEach(([k, v]) => {
+        if (v && typeof v === 'object' && v.access && !revokedPerms.includes(k)) {
+          toSave[k] = v;
+        }
+      });
+      if (toSave.users) {
+        toSave.userManagement = toSave.users;
+      } else if (toSave.userManagement) {
+        toSave.users = toSave.userManagement;
+      }
+      await userAPI.update(selectedUserDetail._id, {
+        permissions: toSave,
+      });
+      showToast.success(`User permissions & lead sources updated for ${selectedUserDetail.name}`);
+      setSelectedUserDetail((prev) => (prev ? { ...prev, permissions: toSave } : null));
+      setIsEditingDetailSources(false);
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('crm-session-permissions-changed', {
+            detail: { userId: selectedUserDetail._id, roleName: selectedUserDetail.roleName },
+          })
+        );
+      }
+      const me = auth.getUser();
+      if (me?._id === selectedUserDetail._id) {
+        await refreshSessionUser();
+      }
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Failed to update user permissions';
+      showToast.error(msg);
+    } finally {
+      setIsSavingDetailPermissions(false);
+    }
+  };
 
   const handleRowClick = async (user: User) => {
     setSelectedUserDetail(user);
     setShowUserDetail(true);
+    setDetailPermissionsDraft(user.permissions ? JSON.parse(JSON.stringify(user.permissions)) : {});
+    setDetailAllowedSources(
+      Array.isArray(user.permissions?.allowedSources) ? [...user.permissions.allowedSources] : []
+    );
+    setIsEditingDetailSources(false);
+    setDetailSourceSearch('');
 
     // Fetch HRMS org fields: emp_no link (teaching staff) or hrms_id only (common for Student Counselors)
     const unwrapHrms = (apiBody: unknown) => {
@@ -828,6 +1033,20 @@ const UserManagementPage = () => {
         color: targetRole.color,
       });
       showToast.success(`Role "${targetRole.name}" permissions updated`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('crm-session-permissions-changed', {
+            detail: { roleName: targetRole.name },
+          })
+        );
+      }
+      const me = auth.getUser();
+      if (
+        me?.roleName &&
+        String(me.roleName).trim().toLowerCase() === String(targetRole.name).trim().toLowerCase()
+      ) {
+        await refreshSessionUser();
+      }
       queryClient.invalidateQueries({ queryKey: ['roleConfigurations'] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
       if (updated) {
@@ -1478,85 +1697,9 @@ const UserManagementPage = () => {
                   )}
                 </div>
 
-                {/* Right Column: Other Info */}
+                {/* Right Column: Lead Sources & Extra Permissions */}
                 <div className="space-y-4">
-                  {selectedUserDetail.roleName === 'Sub Super Admin' && (
-                    <div className="space-y-3">
-                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Module access</h3>
-                      <div className="max-h-96 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-900/50">
-                        {PERMISSION_MODULES.filter((m) => (selectedUserDetail.permissions?.[m.key] as ModulePermission | undefined)?.access).length ===
-                        0 ? (
-                          <p className="text-xs text-slate-500">No modules assigned.</p>
-                        ) : (
-                          PERMISSION_MODULES.filter((m) => (selectedUserDetail.permissions?.[m.key] as ModulePermission | undefined)?.access).map(
-                            (module) => {
-                              const entry = selectedUserDetail.permissions?.[module.key] as
-                                | ModulePermission
-                                | undefined;
-                              const isWrite = entry?.permission === 'write';
-                              const joiningExtras =
-                                module.key === JOINING_PERMISSION_KEY && isWrite
-                                  ? joiningExtrasFromStored(entry)
-                                  : null;
-                              const joiningPageLabels =
-                                module.key === JOINING_PERMISSION_KEY
-                                  ? enabledJoiningPageLabels(entry)
-                                  : null;
-                              const admissionTabLabels =
-                                module.key === JOINING_PERMISSION_KEY
-                                  ? enabledAdmissionTabLabels(entry)
-                                  : null;
-                              return (
-                                <div
-                                  key={module.key}
-                                  className="rounded-lg border border-white/80 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-800/80"
-                                >
-                                  <p className="font-semibold text-slate-800 dark:text-slate-100">{module.label}</p>
-                                  <p className="mt-0.5 text-slate-500 dark:text-slate-400">
-                                    {isWrite ? 'Read & Write' : 'Read only'}
-                                  </p>
-                                  {joiningPageLabels && (
-                                    <p className="mt-1 text-[11px] text-blue-700 dark:text-blue-300">
-                                      Desk pages:{' '}
-                                      {joiningPageLabels.length > 0
-                                        ? joiningPageLabels.join(' · ')
-                                        : 'None selected'}
-                                    </p>
-                                  )}
-                                  {joiningExtras && (
-                                    <p className="mt-1 text-[11px] text-blue-700 dark:text-blue-300">
-                                      Desk edits:{' '}
-                                      {[
-                                        joiningExtras.editReference ? 'Reference' : null,
-                                        joiningExtras.editAdmission ? 'Admission' : null,
-                                        joiningExtras.activateAdmission ? 'Activate admission' : null,
-                                        joiningExtras.approveFeeRequest ? 'Approve fees' : null,
-                                      ]
-                                        .filter(Boolean)
-                                        .join(' · ') || 'None (view only on desk)'}
-                                    </p>
-                                  )}
-                                  {admissionTabLabels && (
-                                    <p className="mt-1 text-[11px] text-blue-700 dark:text-blue-300">
-                                      Admissions tabs:{' '}
-                                      {admissionTabLabels.length > 0
-                                        ? admissionTabLabels.join(' · ')
-                                        : 'None selected'}
-                                    </p>
-                                  )}
-                                </div>
-                              );
-                            }
-                          )
-                        )}
-                      </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Use Edit User to change Joining Desk pages, reference/admission edits, admissions tabs, or fee request approval.
-                      </p>
-                    </div>
-                  )}
-
-                  {selectedUserDetail.roleName === 'Super Admin' && (
+                  {selectedUserDetail.roleName === 'Super Admin' ? (
                     <div className="flex h-full flex-col items-center justify-center text-center p-6 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30">
                       <svg className="w-10 h-10 text-slate-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
@@ -1566,26 +1709,296 @@ const UserManagementPage = () => {
                         Super Admins automatically have complete read and write access to all modules and lead sources.
                       </p>
                     </div>
-                  )}
+                  ) : (
+                    <>
+                      {/* 1. Allowed Lead Sources Card */}
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/80 shadow-sm space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-widest">
+                              Allowed Lead Sources
+                            </h3>
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                detailAllowedSources.length === 0
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                  : 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'
+                              }`}
+                            >
+                              {detailAllowedSources.length === 0
+                                ? 'All Sources Allowed'
+                                : `${detailAllowedSources.length} Restricted`}
+                            </span>
+                          </div>
+                          {canManageUsers && (
+                            <button
+                              type="button"
+                              onClick={() => setIsEditingDetailSources((prev) => !prev)}
+                              className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 transition"
+                            >
+                              {isEditingDetailSources ? (
+                                <>
+                                  <IconCheck className="w-3.5 h-3.5" />
+                                  Done
+                                </>
+                              ) : (
+                                <>
+                                  <IconPencil className="w-3.5 h-3.5" />
+                                  Edit Sources
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
 
-                  {selectedUserDetail.roleName !== 'Sub Super Admin' && selectedUserDetail.roleName !== 'Super Admin' && (
-                    <div className="space-y-3">
-                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Allowed Lead Sources</h3>
-                      <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-900/50">
-                        {selectedUserDetail.permissions?.allowedSources && selectedUserDetail.permissions.allowedSources.length > 0 ? (
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {selectedUserDetail.permissions.allowedSources.map((source: string) => (
-                              <div key={source} className="flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-300">
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                                {source}
+                        {!isEditingDetailSources ? (
+                          <div>
+                            {detailAllowedSources.length === 0 ? (
+                              <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 dark:border-emerald-900/30 dark:bg-emerald-950/20 text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                <span className="font-medium">All lead sources allowed.</span>
+                                <span className="text-slate-400 text-[11px]">(No source restrictions)</span>
                               </div>
-                            ))}
+                            ) : (
+                              <div className="max-h-36 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/70 p-2.5 dark:border-slate-800 dark:bg-slate-900/40 flex flex-wrap gap-1.5">
+                                {detailAllowedSources.map((source) => (
+                                  <span
+                                    key={source}
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm border border-slate-200/80 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                    {source}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ) : (
-                          <p className="text-xs text-slate-500 italic">All lead sources allowed.</p>
+                          <div className="space-y-2.5 rounded-xl border border-blue-100 bg-blue-50/30 p-3 dark:border-blue-900/30 dark:bg-blue-950/20">
+                            <div className="flex items-center gap-2">
+                              <div className="relative flex-1">
+                                <input
+                                  type="text"
+                                  placeholder="Search sources..."
+                                  value={detailSourceSearch}
+                                  onChange={(e) => setDetailSourceSearch(e.target.value)}
+                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setDetailAllowedSources([...allSources])}
+                                className="rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 border border-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200 transition"
+                              >
+                                Select All
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDetailAllowedSources([])}
+                                className="rounded-lg bg-white px-2.5 py-1.5 text-[11px] font-semibold text-rose-600 border border-slate-200 hover:bg-rose-50 dark:bg-slate-800 dark:border-slate-700 dark:text-rose-400 transition"
+                              >
+                                Allow All
+                              </button>
+                            </div>
+
+                            <div className="max-h-44 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
+                              {allSources
+                                .filter(
+                                  (s) =>
+                                    !detailSourceSearch ||
+                                    s.toLowerCase().includes(detailSourceSearch.toLowerCase())
+                                )
+                                .map((source) => {
+                                  const isChecked = detailAllowedSources.includes(source);
+                                  return (
+                                    <label
+                                      key={source}
+                                      className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium cursor-pointer transition-colors border ${
+                                        isChecked
+                                          ? 'bg-blue-50 border-blue-200 text-blue-900 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-200'
+                                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300'
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            setDetailAllowedSources((prev) => [...prev, source]);
+                                          } else {
+                                            setDetailAllowedSources((prev) =>
+                                              prev.filter((s) => s !== source)
+                                            );
+                                          }
+                                        }}
+                                        className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                      />
+                                      <span className="truncate">{source}</span>
+                                    </label>
+                                  );
+                                })}
+                            </div>
+                          </div>
                         )}
                       </div>
-                    </div>
+
+                      {/* 2. Extra Permissions & Module Access Card */}
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/80 shadow-sm space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-widest">
+                              Permissions & Module Access Overrides
+                            </h3>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                              Baseline inherited from <strong className="text-slate-700 dark:text-slate-200">{selectedUserDetail.roleName}</strong>. You can toggle off any role baseline permission to revoke it for this user, or grant extra module permissions below.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                          {PERMISSION_MODULES.map((module) => {
+                            const roleEntry =
+                              detailRoleBaseline[module.key] ||
+                              (module.key === 'users' ? detailRoleBaseline['userManagement'] : undefined);
+                            const isFromRole = Boolean(roleEntry?.access);
+                            const roleLevel = roleEntry?.permission || 'read';
+
+                            const revokedList = Array.isArray(detailPermissionsDraft.revokedPermissions)
+                              ? (detailPermissionsDraft.revokedPermissions as string[])
+                              : [];
+                            const isRevoked =
+                              isFromRole &&
+                              (revokedList.includes(module.key) ||
+                                (module.key === 'users' && revokedList.includes('userManagement')));
+
+                            const extraPerms = (detailPermissionsDraft.extraPermissions ||
+                              {}) as Record<string, ModulePermission>;
+                            const userEntry = (extraPerms[module.key] ||
+                              (module.key === 'users'
+                                ? extraPerms['userManagement']
+                                : undefined)) as ModulePermission | undefined;
+                            const isExtraGranted = !isFromRole && Boolean(userEntry?.access);
+                            const currentLevel = isFromRole ? roleLevel : (userEntry?.permission || 'read');
+
+                            const isModuleActive = isFromRole ? !isRevoked : isExtraGranted;
+
+                            return (
+                              <div
+                                key={module.key}
+                                className={`rounded-xl border p-3 transition-all ${
+                                  isFromRole
+                                    ? isRevoked
+                                      ? 'border-rose-200/90 bg-rose-50/40 dark:border-rose-900/40 dark:bg-rose-950/20'
+                                      : 'border-emerald-200/80 bg-emerald-50/40 dark:border-emerald-900/30 dark:bg-emerald-950/10'
+                                    : isExtraGranted
+                                    ? 'border-blue-200 bg-blue-50/40 dark:border-blue-900/40 dark:bg-blue-950/20'
+                                    : 'border-slate-200 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900/30'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <p className="font-semibold text-xs text-slate-800 dark:text-slate-100 truncate">
+                                        {module.label}
+                                      </p>
+                                      {isFromRole && !isRevoked && (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                          <IconCheck className="w-2.5 h-2.5" />
+                                          Role Baseline ({roleLevel === 'write' ? 'Full Access' : 'Read Only'})
+                                        </span>
+                                      )}
+                                      {isFromRole && isRevoked && (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-800 dark:bg-rose-950 dark:text-rose-300">
+                                          <IconX className="w-2.5 h-2.5" />
+                                          Revoked from Role
+                                        </span>
+                                      )}
+                                      {!isFromRole && isExtraGranted && (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                                          <IconBadge className="w-2.5 h-2.5" />
+                                          Extra Permission
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">
+                                      {module.description}
+                                    </p>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        className="sr-only peer"
+                                        checked={isModuleActive}
+                                        disabled={!canManageUsers}
+                                        onChange={() =>
+                                          handleToggleDetailModulePermission(module.key, isFromRole)
+                                        }
+                                      />
+                                      <div
+                                        className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all ${
+                                          isFromRole
+                                            ? 'peer-checked:bg-emerald-600'
+                                            : 'peer-checked:bg-blue-600'
+                                        }`}
+                                      ></div>
+                                    </label>
+
+                                    {isFromRole && !isRevoked && (
+                                      <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                                        Active
+                                      </span>
+                                    )}
+                                    {isFromRole && isRevoked && (
+                                      <span className="text-[11px] font-medium text-rose-600 dark:text-rose-400">
+                                        Revoked
+                                      </span>
+                                    )}
+
+                                    {!isFromRole && isExtraGranted && (
+                                      <select
+                                        value={currentLevel}
+                                        disabled={!canManageUsers}
+                                        onChange={(e) =>
+                                          handleChangeDetailExtraPermissionLevel(
+                                            module.key,
+                                            e.target.value as 'read' | 'write'
+                                          )
+                                        }
+                                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                      >
+                                        <option value="read">Read Only</option>
+                                        <option value="write">Read & Write</option>
+                                      </select>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Save Action Bar */}
+                        {canManageUsers && (
+                          <div className="pt-2 flex items-center justify-between border-t border-slate-100 dark:border-slate-800">
+                            <span className="text-[11px] text-slate-400">
+                              Applies strictly to {selectedUserDetail.name}
+                            </span>
+                            <Button
+                              size="sm"
+                              onClick={handleSaveDetailPermissionsAndSources}
+                              disabled={isSavingDetailPermissions}
+                              className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs px-4"
+                            >
+                              {isSavingDetailPermissions
+                                ? 'Saving…'
+                                : 'Save User Permissions & Sources'}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
               </div>

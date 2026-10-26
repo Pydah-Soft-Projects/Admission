@@ -22,6 +22,7 @@ import {
   PERMISSION_MODULES,
   DASHBOARD_PERMISSION_KEY,
   PermissionModuleKey,
+  getFirstAccessiblePage,
 } from '@/constants/permissions';
 import {
   admissionTabsFromStored,
@@ -72,11 +73,6 @@ const BASE_NAV_ITEMS: DashboardNavItem[] = [
   { href: '/superadmin/visitors', label: 'Visitors', icon: UserIcon, permissionKey: 'visitors' },
   { href: '/superadmin/reports', label: 'Reports', icon: ReportIcon, permissionKey: 'reports' },
   { href: '/superadmin/profile', label: 'Profile & Settings', icon: UserIcon, permissionKey: 'dashboard' },
-];
-
-/** Data Entry User sees only this: Create Individual Lead */
-const DATA_ENTRY_NAV_ITEMS: DashboardNavItem[] = [
-  { href: '/superadmin/leads/individual', label: 'Create Lead', icon: ListIcon, permissionKey: 'leads' },
 ];
 
 const buildFullAccessPermissions = (): Record<PermissionModuleKey, ModulePermission> => {
@@ -244,9 +240,23 @@ export default function SuperAdminLayout({ children }: { children: ReactNode }) 
     };
 
     const onPermissionsChanged = (event: Event) => {
-      const userId = (event as CustomEvent<{ userId?: string }>).detail?.userId;
-      if (!userId || userId === currentUser._id) {
+      const detail = (event as CustomEvent<{ userId?: string; roleName?: string }>).detail;
+      const userId = detail?.userId;
+      const roleName = detail?.roleName;
+      if (!userId && !roleName) {
         syncPermissions();
+        return;
+      }
+      if (userId && userId === currentUser._id) {
+        syncPermissions();
+        return;
+      }
+      if (
+        roleName &&
+        String(roleName).trim().toLowerCase() === String(currentUser.roleName || '').trim().toLowerCase()
+      ) {
+        syncPermissions();
+        return;
       }
     };
 
@@ -266,14 +276,6 @@ export default function SuperAdminLayout({ children }: { children: ReactNode }) 
     };
   }, [currentUser]);
 
-  // Data Entry User may only access the create individual lead page
-  useEffect(() => {
-    if (!currentUser || currentUser.roleName !== 'Data Entry User') return;
-    if (pathname !== '/superadmin/leads/individual') {
-      router.replace('/superadmin/leads/individual');
-    }
-  }, [currentUser, pathname, router]);
-
   const permissionConfig = useMemo(() => {
     if (!currentUser) {
       return buildFullAccessPermissions();
@@ -283,30 +285,59 @@ export default function SuperAdminLayout({ children }: { children: ReactNode }) 
       return buildFullAccessPermissions();
     }
 
-    if (currentUser.roleName === 'Data Entry User') {
-      const dataEntryPerms: Record<PermissionModuleKey, ModulePermission> = {} as Record<
-        PermissionModuleKey,
-        ModulePermission
-      >;
-      PERMISSION_MODULES.forEach((module) => {
-        dataEntryPerms[module.key] = {
-          access: module.key === 'leads',
-          permission: 'write',
-        };
-      });
-      return dataEntryPerms;
-    }
-
-    // Sub Super Admin and custom roles: apply granted module permissions
+    // Dynamic resolution based strictly on effective permissions
     return sanitizeSubAdminPermissions(
       (currentUser.permissions || {}) as unknown as Record<string, ModulePermission>
     );
   }, [currentUser]);
 
   const navItems = useMemo(() => {
-    if (currentUser?.roleName === 'Data Entry User') return DATA_ENTRY_NAV_ITEMS;
-    return BASE_NAV_ITEMS;
+    const isElevatedAdmin = currentUser?.roleName === 'Super Admin' || currentUser?.roleName === 'Sub Super Admin';
+    if (isElevatedAdmin) return BASE_NAV_ITEMS;
+    // For role-assigned users, hide the global overview analytics dashboard
+    return BASE_NAV_ITEMS.filter((item) => item.permissionKey !== DASHBOARD_PERMISSION_KEY);
   }, [currentUser]);
+
+  // Route Access Guard: Redirect non-superadmin users away from modules they don't have permission for
+  useEffect(() => {
+    if (!currentUser || !isAuthorised) return;
+    if (currentUser.roleName === 'Super Admin' || currentUser.roleName === 'Sub Super Admin') return;
+
+    const getRequiredPermissionForPath = (path: string): PermissionModuleKey | 'dashboard' | 'profile' | null => {
+      if (path.startsWith('/superadmin/dashboard')) return 'dashboard';
+      if (path.startsWith('/superadmin/leads')) return 'leads';
+      if (path.startsWith('/superadmin/joining')) return 'joining';
+      if (path.startsWith('/superadmin/payments')) return 'payments';
+      if (path.startsWith('/superadmin/users')) return 'users';
+      if (path.startsWith('/superadmin/communications') || path.startsWith('/superadmin/whatsapp')) return 'communications';
+      if (path.startsWith('/superadmin/form-builder')) return 'formBuilder';
+      if (path.startsWith('/superadmin/master-data')) return 'masterData';
+      if (path.startsWith('/superadmin/utm-builder')) return 'utmBuilder';
+      if (path.startsWith('/superadmin/visitors')) return 'visitors';
+      if (path.startsWith('/superadmin/reports')) return 'reports';
+      if (path.startsWith('/superadmin/profile')) return 'profile';
+      return null;
+    };
+
+    const requiredKey = getRequiredPermissionForPath(pathname);
+    if (!requiredKey || requiredKey === 'profile') return;
+
+    if (requiredKey === 'dashboard') {
+      const dest = getFirstAccessiblePage(permissionConfig, currentUser.roleName);
+      if (dest !== pathname) {
+        router.replace(dest);
+      }
+      return;
+    }
+
+    const hasModuleAccess = Boolean(permissionConfig[requiredKey]?.access);
+    if (!hasModuleAccess) {
+      const dest = getFirstAccessiblePage(permissionConfig, currentUser.roleName);
+      if (dest !== pathname) {
+        router.replace(dest);
+      }
+    }
+  }, [currentUser, isAuthorised, pathname, permissionConfig, router]);
 
   const roleLabel = currentUser?.roleName ?? 'Super Admin';
   const userName = currentUser?.name ?? 'Super Admin';
@@ -321,16 +352,6 @@ export default function SuperAdminLayout({ children }: { children: ReactNode }) 
     return false;
   }, [pathname, currentUser?.roleName]);
 
-  const description =
-    roleLabel === 'Data Entry User'
-      ? 'Create a single prospect manually and add them to the admissions workflow.'
-      : '';
-
-  const title =
-    roleLabel === 'Data Entry User'
-      ? 'Data Entry'
-      : '';
-
   if (!isAuthorised) {
     return <Loading />;
   }
@@ -338,8 +359,8 @@ export default function SuperAdminLayout({ children }: { children: ReactNode }) 
   return (
     <DashboardShell
       navItems={navItems}
-      title={title}
-      description={description}
+      title=""
+      description=""
       role={roleLabel}
       roleName={roleLabel}
       userName={userName}
@@ -352,4 +373,3 @@ export default function SuperAdminLayout({ children }: { children: ReactNode }) 
     </DashboardShell>
   );
 }
-

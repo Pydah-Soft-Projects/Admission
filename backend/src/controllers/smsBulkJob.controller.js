@@ -1,6 +1,6 @@
 import { getPool } from '../config-sql/database.js';
 import { successResponse, errorResponse } from '../utils/response.util.js';
-import { hasElevatedAdminPrivileges } from '../utils/role.util.js';
+import { hasElevatedAdminPrivileges, hasModuleAccess } from '../utils/role.util.js';
 import {
   createSmsBulkJobRecord,
   formatItemRow,
@@ -33,7 +33,7 @@ export const resumeBulkSmsJob = async (req, res) => {
       return errorResponse(res, 'Job is not in a resumable state', 400);
     }
     const isOwner = String(job.created_by) === String(req.user.id || req.user._id);
-    if (!isOwner && !hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (!isOwner && !hasElevatedAdminPrivileges(req.user) && !hasModuleAccess(req.user, 'communications')) {
       return errorResponse(res, 'Forbidden', 403);
     }
     // Align total_items to actual line-item rows, reconcile counters, and mark complete when all rows are done
@@ -131,7 +131,7 @@ export const getBulkSmsJob = async (req, res) => {
     }
     const job = jobs[0];
     const isOwner = String(job.created_by) === String(req.user.id || req.user._id);
-    if (!isOwner && !hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (!isOwner && !hasElevatedAdminPrivileges(req.user) && !hasModuleAccess(req.user, 'communications')) {
       return errorResponse(res, 'Forbidden', 403);
     }
     const [items] = await pool.execute(
@@ -161,7 +161,7 @@ export const listBulkSmsJobs = async (req, res) => {
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const offset = (page - 1) * limit;
     const pool = getPool();
-    const isSuper = hasElevatedAdminPrivileges(req.user.roleName);
+    const isSuper = hasElevatedAdminPrivileges(req.user) || hasModuleAccess(req.user, 'communications');
     const [countRows] = isSuper
       ? await pool.execute(`SELECT COUNT(*) AS c FROM sms_bulk_jobs`)
       : await pool.execute(`SELECT COUNT(*) AS c FROM sms_bulk_jobs WHERE created_by = ?`, [userId]);

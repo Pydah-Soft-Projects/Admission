@@ -4,9 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/lib/auth';
+import { getFirstAccessiblePage } from '@/constants/permissions';
 import { Button } from '@/components/ui/Button';
 import Image from 'next/image';
-import FloatingBubbles from '@/components/FloatingBubbles';
 
 export default function Home() {
   const router = useRouter();
@@ -30,10 +30,13 @@ export default function Home() {
           return false;
         };
 
-        if (user.roleName === 'Data Entry User') {
-          router.replace('/superadmin/leads/individual');
-        } else if (hasAdminAccess()) {
+        if (user.roleName === 'Super Admin' || user.roleName === 'Sub Super Admin') {
           router.replace('/superadmin/dashboard');
+        } else if (hasAdminAccess()) {
+          const dest = getFirstAccessiblePage(user.permissions, user.roleName);
+          router.replace(dest);
+        } else if (user.roleName === 'Data Entry User') {
+          router.replace('/superadmin/leads/individual');
         } else if (user.isManager) {
           router.replace('/manager/dashboard');
         } else {
