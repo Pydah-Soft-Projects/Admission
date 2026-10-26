@@ -76,4 +76,29 @@ export const PERMISSION_MODULES: PermissionModuleDefinition[] = [
 
 export const DEFAULT_PERMISSION_LEVEL: ModulePermissionLevel = 'write';
 
+export const getFirstAccessiblePage = (
+  permissions?: Record<string, unknown> | null,
+  roleName?: string
+): string => {
+  if (roleName === 'Super Admin' || roleName === 'Sub Super Admin') {
+    return '/superadmin/dashboard';
+  }
 
+  const perms = (permissions || {}) as Record<string, { access?: boolean }>;
+
+  if (perms.reports?.access) return '/superadmin/reports';
+  if (perms.communications?.access) return '/superadmin/communications/templates';
+  if (perms.leads?.access) {
+    if (roleName === 'Data Entry User') return '/superadmin/leads/individual';
+    return '/superadmin/leads';
+  }
+  if (perms.joining?.access) return '/superadmin/joining/confirmed';
+  if (perms.payments?.access) return '/superadmin/payments/courses';
+  if (perms.users?.access || perms.userManagement?.access) return '/superadmin/users';
+  if (perms.visitors?.access) return '/superadmin/visitors';
+  if (perms.formBuilder?.access) return '/superadmin/form-builder';
+  if (perms.masterData?.access) return '/superadmin/master-data';
+  if (perms.utmBuilder?.access) return '/superadmin/utm-builder';
+
+  return '/superadmin/profile';
+};

@@ -110,12 +110,26 @@ export const auth = {
     return !!Cookies.get(TOKEN_KEY);
   },
 
-  // Check if user is super admin
+  // Check if user has admin privileges
   isSuperAdmin: (): boolean => {
     const user = auth.getUser();
     if (!user) return false;
 
-    return user.roleName === 'Super Admin' || user.roleName === 'Sub Super Admin';
+    if (user.roleName === 'Super Admin' || user.roleName === 'Sub Super Admin') {
+      return true;
+    }
+
+    if (user.permissions && typeof user.permissions === 'object') {
+      return Object.entries(user.permissions).some(
+        ([key, val]) =>
+          key !== 'allowedSources' &&
+          val &&
+          typeof val === 'object' &&
+          (val as { access?: boolean }).access === true
+      );
+    }
+
+    return false;
   },
 
   // Update stored user (e.g. after settings change)
@@ -155,10 +169,13 @@ export const auth = {
         switcherElements.forEach((el) => el.remove());
         const switcherScript = document.getElementById('pydah-portal-switcher-cdn-script');
         if (switcherScript) switcherScript.remove();
-        if ((window as any).PydahSwitcher?.destroy) {
-          (window as any).PydahSwitcher.destroy();
+        const win = window as unknown as { PydahSwitcher?: { destroy?: () => void } };
+        if (win.PydahSwitcher?.destroy) {
+          win.PydahSwitcher.destroy();
         }
-      } catch (_) {}
+      } catch {
+        /* ignore */
+      }
     }
   },
 
@@ -171,7 +188,7 @@ export const auth = {
     }
     try {
       await authAPI.logout();
-    } catch (_) {
+    } catch {
       /* ignore - proceed with local logout */
     }
     auth.clearAuth();

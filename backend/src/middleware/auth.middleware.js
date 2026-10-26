@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { getPool } from '../config-sql/database.js';
 import { errorResponse } from '../utils/response.util.js';
-import { hasElevatedAdminPrivileges, isTrueSuperAdmin } from '../utils/role.util.js';
+import { hasElevatedAdminPrivileges, isTrueSuperAdmin, resolveEffectivePermissions, hasModuleAccess } from '../utils/role.util.js';
 import {
   canJoiningEditAdmission,
   canJoiningEditReference,
@@ -49,7 +49,8 @@ export const protect = async (req, res, next) => {
         ? true
         : (userData.time_tracking_enabled === 1 || userData.time_tracking_enabled === true);
 
-      // Format user object to match expected structure (camelCase)
+      const userPerms = await resolveEffectivePermissions(pool, userData.role_name, userData.permissions);
+
       req.user = {
         id: userData.id,
         _id: userData.id, // Keep _id for backward compatibility
@@ -61,9 +62,7 @@ export const protect = async (req, res, next) => {
         managedBy: userData.managed_by,
         isManager: userData.is_manager === 1 || userData.is_manager === true,
         designation: userData.designation,
-        permissions: typeof userData.permissions === 'string'
-          ? JSON.parse(userData.permissions)
-          : userData.permissions || {},
+        permissions: userPerms,
         isActive: userData.is_active === 1 || userData.is_active === true,
         timeTrackingEnabled,
         createdAt: userData.created_at,
@@ -89,11 +88,30 @@ export const isSuperAdmin = (req, res, next) => {
     return errorResponse(res, 'Not authenticated', 401);
   }
 
-  if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+  if (!hasElevatedAdminPrivileges(req.user)) {
     return errorResponse(res, 'Access denied. Super Admin only', 403);
   }
 
   next();
+};
+
+// Require access to a specific module (e.g. reports, visitors, leads, etc.)
+export const requireModule = (moduleKey, requiredLevel = 'read') => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return errorResponse(res, 'Not authenticated', 401);
+    }
+
+    if (
+      req.user.roleName === 'Super Admin' ||
+      req.user.roleName === 'Sub Super Admin' ||
+      hasModuleAccess(req.user, moduleKey, requiredLevel)
+    ) {
+      return next();
+    }
+
+    return errorResponse(res, `Access denied. Insufficient permissions for ${moduleKey}`, 403);
+  };
 };
 
 // Authorize roles
@@ -201,7 +219,11 @@ export const requireTimeTrackingEnabled = (req, res, next) => {
     return errorResponse(res, 'Not authenticated', 401);
   }
   const { roleName, isManager, timeTrackingEnabled } = req.user;
-  const isAdminOrDataEntry = roleName === 'Super Admin' || roleName === 'Sub Super Admin' || roleName === 'Data Entry User';
+  const isAdminOrDataEntry =
+    roleName === 'Super Admin' ||
+    roleName === 'Sub Super Admin' ||
+    roleName === 'Data Entry User' ||
+    hasElevatedAdminPrivileges(req.user);
   if (isAdminOrDataEntry) {
     return next();
   }
@@ -260,19 +282,8 @@ export const requireJoiningActivateAdmission = async (req, res, next) => {
   return errorResponse(res, 'Access denied. Activate admission permission required', 403);
 };
 
-// Check if user has specific permission (for future use)
-export const hasPermission = (permission) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return errorResponse(res, 'Not authenticated', 401);
-    }
-
-    if (hasElevatedAdminPrivileges(req.user.roleName)) {
-      return next();
-    }
-
-    // For now, only Super Admin has permissions
-    return errorResponse(res, 'Access denied. Insufficient permissions', 403);
-  };
+// Check if user has specific permission
+export const hasPermission = (permission, requiredLevel = 'read') => {
+  return requireModule(permission, requiredLevel);
 };
 

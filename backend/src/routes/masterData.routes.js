@@ -28,12 +28,12 @@ import {
   deleteCollege,
   bulkCreateColleges,
 } from '../controllers/masterData.controller.js';
-import { protect, isSuperAdmin } from '../middleware/auth.middleware.js';
+import { protect, requireModule } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
 router.use(protect);
-router.use(isSuperAdmin);
+router.use(requireModule('masterData'));
 
 // States
 router.route('/states').get(listStates).post(createState);

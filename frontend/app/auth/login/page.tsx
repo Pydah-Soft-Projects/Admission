@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { LoginLottie } from '@/components/LoginLottie';
 import { ForgotPasswordModal } from '@/components/auth/ForgotPasswordModal';
+import { getFirstAccessiblePage } from '@/constants/permissions';
+import type { User } from '@/types';
 
 const loginSchema = z.object({
   email: z.string().min(1, 'Email or Mobile Number is required'),
@@ -22,6 +24,31 @@ const loginSchema = z.object({
 });
 
 type LoginFormData = z.infer<typeof loginSchema>;
+
+function getRoleRedirectUrl(user: User): string {
+  if (user.roleName === 'Super Admin' || user.roleName === 'Sub Super Admin') {
+    return '/superadmin/dashboard';
+  }
+  if (user.permissions && typeof user.permissions === 'object') {
+    const hasAdminAccess = Object.entries(user.permissions).some(
+      ([k, v]) =>
+        k !== 'allowedSources' &&
+        v &&
+        typeof v === 'object' &&
+        (v as { access?: boolean }).access === true
+    );
+    if (hasAdminAccess) {
+      return getFirstAccessiblePage(user.permissions, user.roleName);
+    }
+  }
+  if (user.roleName === 'Data Entry User') {
+    return '/superadmin/leads/individual';
+  }
+  if (user.isManager) {
+    return '/manager/dashboard';
+  }
+  return '/user/dashboard';
+}
 
 function LoginPageContent() {
   const router = useRouter();
@@ -112,19 +139,12 @@ function LoginPageContent() {
       auth.setAuth(token, { ...user, isSSO: true }, true, returnUrl || CRM_FRONTEND_URL);
 
       // Step 5: Redirect based on role
-      if (user.roleName === 'Super Admin' || user.roleName === 'Sub Super Admin') {
-        router.push('/superadmin/dashboard');
-      } else if (user.roleName === 'Data Entry User') {
-        router.push('/superadmin/leads/individual');
-      } else if (user.isManager) {
-        router.push('/manager/dashboard');
-      } else {
-        router.push('/user/dashboard');
-      }
+      router.push(getRoleRedirectUrl(user));
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('SSO login error:', err);
-      setError(err.message || 'SSO authentication failed. Please try logging in manually.');
+      const message = err instanceof Error ? err.message : 'SSO authentication failed. Please try logging in manually.';
+      setError(message);
       setShowLoginForm(true);
       // Remove token from URL
       router.replace('/auth/login');
@@ -161,20 +181,13 @@ function LoginPageContent() {
       auth.setAuth(token, user, false);
 
       // Redirect based on role
-      if (user.roleName === 'Super Admin' || user.roleName === 'Sub Super Admin') {
-        router.push('/superadmin/dashboard');
-      } else if (user.roleName === 'Data Entry User') {
-        router.push('/superadmin/leads/individual');
-      } else if (user.isManager) {
-        router.push('/manager/dashboard');
-      } else {
-        router.push('/user/dashboard');
-      }
-    } catch (err: any) {
+      router.push(getRoleRedirectUrl(user));
+    } catch (err: unknown) {
       console.error('Login error:', err);
-      console.error('Error response:', err.response);
-      const status = err.response?.status;
-      const serverMessage = err.response?.data?.message;
+      const errAxios = err as { response?: { status?: number; data?: { message?: string } }; message?: string };
+      console.error('Error response:', errAxios.response);
+      const status = errAxios.response?.status;
+      const serverMessage = errAxios.response?.data?.message;
       let errorMessage: string;
       if (status === 404) {
         const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
@@ -182,7 +195,7 @@ function LoginPageContent() {
       } else if (serverMessage) {
         errorMessage = serverMessage;
       } else {
-        errorMessage = err.message || 'Login failed. Please check your credentials and try again.';
+        errorMessage = errAxios.message || 'Login failed. Please check your credentials and try again.';
       }
       setError(errorMessage);
     } finally {

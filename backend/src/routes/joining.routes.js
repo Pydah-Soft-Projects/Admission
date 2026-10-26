@@ -2,6 +2,7 @@ import express from 'express';
 import {
   protect,
   isSuperAdmin,
+  requireModule,
   requireJoiningEditAdmission,
 } from '../middleware/auth.middleware.js';
 import {
@@ -37,8 +38,8 @@ router.get('/:leadId', getJoining);
 router.patch('/:leadId/step-two', requireJoiningEditAdmission, patchJoiningStepTwo);
 router.post('/:leadId', saveJoiningDraft);
 router.post('/:leadId/submit', submitJoiningForApproval);
-router.post('/:leadId/approve', isSuperAdmin, approveJoining);
-router.delete('/:leadId', isSuperAdmin, deleteSelfRegistrationJoining);
+router.post('/:leadId/approve', requireModule('joining', 'write'), approveJoining);
+router.delete('/:leadId', requireModule('joining', 'write'), deleteSelfRegistrationJoining);
 
 export default router;
 

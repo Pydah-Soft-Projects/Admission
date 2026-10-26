@@ -2,19 +2,17 @@ import axios from 'axios';
 import Cookies from 'js-cookie';
 import type {
   JoiningStatus,
-  CoursePaymentSettings,
-  CourseFeePayload,
-  CashfreeConfigPreview,
-  PaymentTransaction,
   LeadUpdatePayload,
   CreateUserData,
   UpdateUserData,
-  BulkUploadJobResponse,
   ImportJobStatusResponse,
   DeleteJobStatusResponse,
   LeadFilters,
   JoiningStudentFeeDetails,
+  RoleConfigItem,
 } from '@/types';
+
+export type { RoleConfigItem };
 
 export type SmsBulkJobReportContext = {
   version?: number;
@@ -129,7 +127,7 @@ export const authAPI = {
   logout: async () => {
     try {
       await api.post('/auth/logout');
-    } catch (err) {
+    } catch {
       // Ignore errors during logout
     }
   },
@@ -230,7 +228,57 @@ export const userAPI = {
     const response = await api.get(`/users/hrms/id/${encodeURIComponent(mongoId)}`);
     return response.data;
   },
+  /** Convenience alias for roleAPI.getAll */
+  getRoleConfigurations: async (): Promise<RoleConfigItem[]> => {
+    const response = await api.get('/users/roles/config');
+    const d = response.data;
+    if (Array.isArray(d)) return d;
+    if (Array.isArray(d?.data)) return d.data;
+    return [];
+  },
 };
+
+// Role Configuration API
+export const roleAPI = {
+  getAll: async (): Promise<RoleConfigItem[]> => {
+    const response = await api.get('/users/roles/config');
+    const d = response.data;
+    if (Array.isArray(d)) return d;
+    if (Array.isArray(d?.data)) return d.data;
+    return [];
+  },
+  create: async (payload: {
+    name: string;
+    description?: string;
+    color?: string;
+    permissions?: Record<string, Record<string, unknown>> | Record<string, unknown>;
+  }): Promise<RoleConfigItem> => {
+    const response = await api.post('/users/roles/config', payload);
+    return response.data?.data || response.data;
+  },
+  update: async (
+    id: string,
+    payload: {
+      name?: string;
+      description?: string;
+      color?: string;
+      permissions?: Record<string, Record<string, unknown>> | Record<string, unknown>;
+    }
+  ): Promise<RoleConfigItem> => {
+    const response = await api.put(`/users/roles/config/${id}`, payload);
+    return response.data?.data || response.data;
+  },
+  delete: async (
+    id: string,
+    transferToRole?: string
+  ): Promise<{ transferredCount?: number; transferToRole?: string | null }> => {
+    const response = await api.delete(`/users/roles/config/${id}`, {
+      data: transferToRole ? { transferToRole } : undefined,
+    });
+    return response.data?.data || response.data;
+  },
+};
+
 
 // User Settings API (current user only)
 export const userSettingsAPI = {
@@ -343,7 +391,7 @@ export const leadAPI = {
     rank?: number;
     interCollege?: string;
     studentGroup?: string;
-    dynamicFields?: Record<string, any>;
+    dynamicFields?: Record<string, unknown>;
     source?: string;
   }) => {
     const response = await api.post('/leads', data);
@@ -798,7 +846,7 @@ export const leadAPI = {
     gender?: string;
     rank?: number;
     interCollege?: string;
-    dynamicFields?: Record<string, any>;
+    dynamicFields?: Record<string, unknown>;
     source?: string;
     isNRI?: boolean;
     utmSource?: string;
@@ -1356,7 +1404,7 @@ export const joiningAPI = {
     const response = await api.get(`/joinings/${leadId}`);
     return response.data;
   },
-  saveDraft: async (leadId: string, data: any) => {
+  saveDraft: async (leadId: string, data: Record<string, unknown>) => {
     const response = await api.post(`/joinings/${leadId}`, data);
     return response.data;
   },
@@ -1754,7 +1802,7 @@ export const admissionAPI = {
     );
     return response.data;
   },
-  updateById: async (admissionId: string, data: any) => {
+  updateById: async (admissionId: string, data: Record<string, unknown>) => {
     const response = await api.put(`/admissions/id/${admissionId}`, data);
     return response.data;
   },
@@ -1785,7 +1833,7 @@ export const admissionAPI = {
     });
     return response.data;
   },
-  updateByLeadId: async (leadId: string, data: any) => {
+  updateByLeadId: async (leadId: string, data: Record<string, unknown>) => {
     const response = await api.put(`/admissions/${leadId}`, data);
     return response.data;
   },
@@ -2325,7 +2373,7 @@ export const paymentAPI = {
       phone?: string;
       notifyUrl?: string;
     };
-    notes?: Record<string, any>;
+    notes?: Record<string, unknown>;
     isAdditionalFee?: boolean;
     // Optional fee-head tagging from Fee Management DB
     feeHead?: string | null;
@@ -2686,7 +2734,7 @@ export const formBuilderAPI = {
     fieldLabel: string;
     placeholder?: string;
     isRequired?: boolean;
-    validationRules?: Record<string, any>;
+    validationRules?: Record<string, unknown>;
     displayOrder?: number;
     options?: Array<{ value: string; label: string }>;
     defaultValue?: string;
@@ -2701,7 +2749,7 @@ export const formBuilderAPI = {
     fieldLabel?: string;
     placeholder?: string;
     isRequired?: boolean;
-    validationRules?: Record<string, any>;
+    validationRules?: Record<string, unknown>;
     displayOrder?: number;
     options?: Array<{ value: string; label: string }>;
     defaultValue?: string;

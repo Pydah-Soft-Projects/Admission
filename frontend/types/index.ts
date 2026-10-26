@@ -1,5 +1,17 @@
-// User Types
-export type RoleName = 'Super Admin' | 'Sub Super Admin' | 'Student Counselor' | 'Data Entry User' | 'PRO';
+export type RoleName = 'Super Admin' | 'Sub Super Admin' | 'Student Counselor' | 'Data Entry User' | 'PRO' | (string & {});
+
+export interface RoleConfigItem {
+  id: string;
+  name: string;
+  description: string;
+  color?: string;
+  isSystem: boolean;
+  permissions: Record<string, Record<string, unknown>>;
+  userCount?: number;
+  activeUserCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export type ModulePermissionLevel = 'read' | 'write';
 
@@ -32,6 +44,11 @@ export interface ModulePermission {
   admissionTabDateWise?: boolean;
 }
 
+export interface UserPermissions {
+  allowedSources?: string[];
+  [key: string]: unknown;
+}
+
 export interface User {
   id: string; // Add id (same as _id)
   _id: string;
@@ -42,7 +59,7 @@ export interface User {
   emp_no?: string | null;
   roleName: RoleName;
   designation?: string;
-  permissions?: Record<string, any>;
+  permissions?: UserPermissions;
   managedBy?: string | User;
   previousRoleName?: string;
   isManager?: boolean;
@@ -75,7 +92,7 @@ export interface CreateUserData {
   password: string;
   roleName: RoleName;
   designation?: string;
-  permissions?: Record<string, any>;
+  permissions?: UserPermissions;
   hrms_id?: string;
   emp_no?: string;
 }
@@ -87,7 +104,7 @@ export interface UpdateUserData {
   roleName?: RoleName;
   designation?: string;
   password?: string;
-  permissions?: Record<string, any>;
+  permissions?: UserPermissions;
   isActive?: boolean;
   isManager?: boolean;
   managedBy?: string | null;
@@ -176,7 +193,7 @@ export interface PaymentTransaction {
   cashfreePaymentSessionId?: string;
   referenceId?: string;
   notes?: string;
-  meta?: Record<string, any>;
+  meta?: Record<string, unknown>;
   isAdditionalFee?: boolean;
   // Fee-head tagging (when the payment was recorded against a specific row of the Fee Structure)
   feeHead?: string | null;
@@ -252,7 +269,7 @@ export interface Lead {
   gender?: string;
   rank?: number;
   interCollege?: string;
-  dynamicFields?: Record<string, any>;
+  dynamicFields?: Record<string, unknown>;
   assignedTo?: User | string;
   /** PRO field staff assigned to the lead (superadmin / full lead views) */
   assignedToPro?: User | string;
@@ -310,7 +327,7 @@ export interface LeadUpdatePayload {
   rank?: number;
   interCollege?: string;
   leadStatus?: string;
-  dynamicFields?: Record<string, any>;
+  dynamicFields?: Record<string, unknown>;
   assignedTo?: string;
   source?: string;
   notes?: string;
@@ -383,7 +400,7 @@ export interface CommunicationRecord {
     variables?: MessageTemplateVariable[];
   };
   providerMessageIds?: string[];
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   sentBy: User | string;
   sentAt: string;
   createdAt: string;
@@ -709,7 +726,7 @@ export interface TransportRouteDetail extends TransportRouteSummary {
 export interface Joining {
   _id: string;
   leadId?: string; // Made optional to support joinings without leads
-  leadData?: any; // Snapshot of lead data stored in joining
+  leadData?: Lead | Record<string, unknown>; // Snapshot of lead data stored in joining
   /** Extra answers from Form Builder fields not stored on joining columns (persisted in lead_data._joiningRegistrationExtras). */
   registrationFormData?: Record<string, unknown>;
   /** Editable per-head fee amounts/notes for this student (persisted in lead_data._joiningStudentFeeDetails). */
@@ -905,7 +922,7 @@ export interface Admission {
   joiningId: string;
   admissionNumber: string;
   enquiryNumber?: string; // Enquiry number from lead
-  leadData?: any; // Snapshot of lead data stored in admission
+  leadData?: Lead | Record<string, unknown>; // Snapshot of lead data stored in admission
   /** Extra answers from Form Builder fields (copied from joining lead_data._joiningRegistrationExtras). */
   registrationFormData?: Record<string, unknown>;
   /** Per-head fee overrides (from lead_data._joiningStudentFeeDetails when exposed on detail API). */
@@ -968,8 +985,8 @@ export interface LeadUploadData {
   rank?: number | string;
   interCollege?: string;
   hallTicketNumber?: string;
-  dynamicFields?: Record<string, any>;
-  [key: string]: any; // For dynamic fields
+  dynamicFields?: Record<string, unknown>;
+  [key: string]: unknown; // For dynamic fields
 }
 
 export interface BulkUploadResponse {
@@ -1174,7 +1191,7 @@ export interface ActivityLog {
   newStatus?: string;
   comment?: string;
   performedBy: User | string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }

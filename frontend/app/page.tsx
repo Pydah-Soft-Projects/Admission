@@ -4,9 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/lib/auth';
+import { getFirstAccessiblePage } from '@/constants/permissions';
 import { Button } from '@/components/ui/Button';
 import Image from 'next/image';
-import FloatingBubbles from '@/components/FloatingBubbles';
 
 export default function Home() {
   const router = useRouter();
@@ -16,8 +16,25 @@ export default function Home() {
     const checkAuth = () => {
       const user = auth.getUser();
       if (user) {
+        const hasAdminAccess = () => {
+          if (user.roleName === 'Super Admin' || user.roleName === 'Sub Super Admin') return true;
+          if (user.permissions && typeof user.permissions === 'object') {
+            return Object.entries(user.permissions).some(
+              ([k, v]) =>
+                k !== 'allowedSources' &&
+                v &&
+                typeof v === 'object' &&
+                (v as { access?: boolean }).access === true
+            );
+          }
+          return false;
+        };
+
         if (user.roleName === 'Super Admin' || user.roleName === 'Sub Super Admin') {
           router.replace('/superadmin/dashboard');
+        } else if (hasAdminAccess()) {
+          const dest = getFirstAccessiblePage(user.permissions, user.roleName);
+          router.replace(dest);
         } else if (user.roleName === 'Data Entry User') {
           router.replace('/superadmin/leads/individual');
         } else if (user.isManager) {

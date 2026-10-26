@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getPool } from '../config-sql/database.js';
 import { successResponse, errorResponse } from '../utils/response.util.js';
 import { generateEnquiryNumber } from '../utils/generateEnquiryNumber.js';
-import { hasElevatedAdminPrivileges } from '../utils/role.util.js';
+import { hasElevatedAdminPrivileges, hasModuleAccess } from '../utils/role.util.js';
 import { notifyLeadCreated } from '../services/notification.service.js';
 import { buildLeadNameFuzzySql, buildLeadSearchPhoneOrSql } from '../utils/leadNameSearch.util.js';
 import {
@@ -320,7 +320,7 @@ const buildLeadFilterConditions = (req, alias = 'l') => {
   }
 
   // Access control
-  if (!hasElevatedAdminPrivileges(req.user.roleName) && req.user.roleName !== 'Admin') {
+  if (!hasElevatedAdminPrivileges(req.user) && !hasModuleAccess(req.user, 'leads') && req.user.roleName !== 'Admin') {
     if (req.user.roleName === 'PRO') {
       conditions.push(`(${p}assigned_to_pro = ? OR ${p}assigned_to = ?)`);
       params.push(userId, userId);
@@ -757,7 +757,7 @@ export const getLead = async (req, res) => {
     const isAdmin = req.user.roleName === 'Admin';
     const isPro = req.user.roleName === 'PRO';
 
-    if (hasElevatedAdminPrivileges(req.user.roleName) || isAdmin || isPro) {
+    if (hasElevatedAdminPrivileges(req.user) || hasModuleAccess(req.user, 'leads') || isAdmin || isPro) {
       hasAccess = true;
     }
     // If lead is assigned to the user, they have access
@@ -1180,7 +1180,7 @@ export const updateLead = async (req, res) => {
     const currentLead = leads[0];
 
     // Check if user has access
-    const isSuperAdmin = hasElevatedAdminPrivileges(req.user.roleName);
+    const isSuperAdmin = hasElevatedAdminPrivileges(req.user) || hasModuleAccess(req.user, 'leads', 'write');
     const isAdmin = req.user.roleName === 'Admin';
     const isPro = req.user.roleName === 'PRO';
     const isStudentCounselor = req.user.roleName === 'Student Counselor';
@@ -1707,8 +1707,8 @@ export const deleteLead = async (req, res) => {
       return errorResponse(res, 'Lead not found', 404);
     }
 
-    // Only Super Admin can delete
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    // Only Super Admin or users with write access to leads can delete
+    if (!hasElevatedAdminPrivileges(req.user) && !hasModuleAccess(req.user, 'leads', 'write')) {
       return errorResponse(res, 'Access denied. Super Admin only', 403);
     }
 
@@ -1900,7 +1900,7 @@ export const bulkDeleteLeads = async (req, res) => {
       return errorResponse(res, 'Please provide an array of lead IDs to delete', 400);
     }
 
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (!hasElevatedAdminPrivileges(req.user) && !hasModuleAccess(req.user, 'leads', 'write')) {
       return errorResponse(res, 'Access denied. Super Admin only', 403);
     }
 
@@ -1979,7 +1979,7 @@ export const getDeleteJobStatus = async (req, res) => {
   try {
     const { jobId } = req.params;
 
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (!hasElevatedAdminPrivileges(req.user) && !hasModuleAccess(req.user, 'leads')) {
       return errorResponse(res, 'Access denied. Super Admin only', 403);
     }
 
@@ -2115,7 +2115,11 @@ export const getFilterOptions = async (req, res) => {
     // Build WHERE clause for access control (mirror GET /leads: PRO uses assigned_to_pro OR assigned_to)
     const conditions = [];
 
-    const adminLike = hasElevatedAdminPrivileges(req.user.roleName) || req.user.roleName === 'Admin';
+    const adminLike =
+      hasElevatedAdminPrivileges(req.user) ||
+      hasModuleAccess(req.user, 'leads') ||
+      hasModuleAccess(req.user, 'reports') ||
+      req.user.roleName === 'Admin';
     const userId = req.user.id || req.user._id;
     
     const params = !adminLike
@@ -2308,7 +2312,11 @@ export const getStudentGroupFilterOptions = async (req, res) => {
   try {
     const pool = getPool();
 
-    const adminLike = hasElevatedAdminPrivileges(req.user.roleName) || req.user.roleName === 'Admin';
+    const adminLike =
+      hasElevatedAdminPrivileges(req.user) ||
+      hasModuleAccess(req.user, 'leads') ||
+      hasModuleAccess(req.user, 'reports') ||
+      req.user.roleName === 'Admin';
     const userId = req.user.id || req.user._id;
 
     const accessConditions = [];
