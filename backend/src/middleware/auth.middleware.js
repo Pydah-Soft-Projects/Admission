@@ -49,7 +49,31 @@ export const protect = async (req, res, next) => {
         ? true
         : (userData.time_tracking_enabled === 1 || userData.time_tracking_enabled === true);
 
-      // Format user object to match expected structure (camelCase)
+      let userPerms = {};
+      try {
+        userPerms = typeof userData.permissions === 'string'
+          ? JSON.parse(userData.permissions)
+          : userData.permissions || {};
+      } catch {
+        userPerms = {};
+      }
+
+      if (Object.keys(userPerms).length === 0 && userData.role_name) {
+        try {
+          const [roleConfig] = await pool.execute(
+            'SELECT permissions FROM role_configurations WHERE LOWER(name) = LOWER(?)',
+            [String(userData.role_name).trim()]
+          );
+          if (roleConfig.length > 0 && roleConfig[0].permissions) {
+            userPerms = typeof roleConfig[0].permissions === 'string'
+              ? JSON.parse(roleConfig[0].permissions)
+              : roleConfig[0].permissions;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       req.user = {
         id: userData.id,
         _id: userData.id, // Keep _id for backward compatibility
@@ -61,9 +85,7 @@ export const protect = async (req, res, next) => {
         managedBy: userData.managed_by,
         isManager: userData.is_manager === 1 || userData.is_manager === true,
         designation: userData.designation,
-        permissions: typeof userData.permissions === 'string'
-          ? JSON.parse(userData.permissions)
-          : userData.permissions || {},
+        permissions: userPerms,
         isActive: userData.is_active === 1 || userData.is_active === true,
         timeTrackingEnabled,
         createdAt: userData.created_at,
@@ -89,7 +111,7 @@ export const isSuperAdmin = (req, res, next) => {
     return errorResponse(res, 'Not authenticated', 401);
   }
 
-  if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+  if (!hasElevatedAdminPrivileges(req.user)) {
     return errorResponse(res, 'Access denied. Super Admin only', 403);
   }
 
@@ -201,7 +223,11 @@ export const requireTimeTrackingEnabled = (req, res, next) => {
     return errorResponse(res, 'Not authenticated', 401);
   }
   const { roleName, isManager, timeTrackingEnabled } = req.user;
-  const isAdminOrDataEntry = roleName === 'Super Admin' || roleName === 'Sub Super Admin' || roleName === 'Data Entry User';
+  const isAdminOrDataEntry =
+    roleName === 'Super Admin' ||
+    roleName === 'Sub Super Admin' ||
+    roleName === 'Data Entry User' ||
+    hasElevatedAdminPrivileges(req.user);
   if (isAdminOrDataEntry) {
     return next();
   }

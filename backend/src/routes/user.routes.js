@@ -9,6 +9,10 @@ import {
   searchHrmsEmployees,
   getHrmsEmployeeByMongoId,
   getHrmsEmployeeByEmpNo,
+  getRoleConfigurations,
+  createRoleConfiguration,
+  updateRoleConfiguration,
+  deleteRoleConfiguration,
 } from '../controllers/user.controller.js';
 import { getMySettings, updateMySettings } from '../controllers/userSettings.controller.js';
 import { updateMyProfile } from '../controllers/userProfile.controller.js';
@@ -20,6 +24,12 @@ const router = express.Router();
 
 // All routes require authentication
 router.use(protect);
+
+// Role Configurations - must be defined before /:id to avoid ID conflict
+router.get('/roles/config', getRoleConfigurations);
+router.post('/roles/config', isSuperAdmin, createRoleConfiguration);
+router.put('/roles/config/:id', isSuperAdmin, updateRoleConfiguration);
+router.delete('/roles/config/:id', isSuperAdmin, deleteRoleConfiguration);
 
 // Current user's settings and login logs (no time-tracking restriction - user must access settings to enable)
 router.get('/me/settings', getMySettings);

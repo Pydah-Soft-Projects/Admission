@@ -7,7 +7,6 @@ import {
   DashboardNavItem,
   HomeIcon,
   ListIcon,
-  BookIcon,
   TemplateIcon,
   CommunicationsIcon,
   AcademicIcon,
@@ -125,7 +124,9 @@ const sanitizeSubAdminPermissions = (
   >;
 
   PERMISSION_MODULES.forEach((module) => {
-    const entry = permissions?.[module.key];
+    const entry =
+      permissions?.[module.key] ||
+      (module.key === 'users' ? permissions?.['userManagement'] : undefined);
     if (entry?.access) {
       const permission = entry.permission === 'write' ? 'write' : 'read';
       if (module.key === 'joining') {
@@ -183,17 +184,33 @@ export default function SuperAdminLayout({ children }: { children: ReactNode }) 
         return;
       }
 
-      if (
-        cached.roleName !== 'Super Admin' &&
-        cached.roleName !== 'Sub Super Admin' &&
-        cached.roleName !== 'Data Entry User'
-      ) {
+      const hasAdminAccess = (u: User) => {
+        if (
+          u.roleName === 'Super Admin' ||
+          u.roleName === 'Sub Super Admin' ||
+          u.roleName === 'Data Entry User'
+        ) {
+          return true;
+        }
+        if (u.permissions && typeof u.permissions === 'object') {
+          return Object.entries(u.permissions).some(
+            ([k, v]) =>
+              k !== 'allowedSources' &&
+              v &&
+              typeof v === 'object' &&
+              (v as { access?: boolean }).access === true
+          );
+        }
+        return false;
+      };
+
+      if (!hasAdminAccess(cached)) {
         router.replace('/user/dashboard');
         return;
       }
 
       let user = cached;
-      if (cached.roleName === 'Sub Super Admin') {
+      if (cached.roleName !== 'Super Admin') {
         const fresh = await refreshSessionUser();
         if (!cancelled && fresh) {
           user = fresh;
@@ -214,7 +231,7 @@ export default function SuperAdminLayout({ children }: { children: ReactNode }) 
   }, [router]);
 
   useEffect(() => {
-    if (!currentUser || currentUser.roleName !== 'Sub Super Admin') return;
+    if (!currentUser || currentUser.roleName === 'Super Admin') return;
 
     const applyFreshUser = (fresh: User | null) => {
       if (fresh) {
@@ -247,7 +264,7 @@ export default function SuperAdminLayout({ children }: { children: ReactNode }) 
       window.removeEventListener('crm-session-permissions-changed', onPermissionsChanged);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [currentUser?._id, currentUser?.roleName]);
+  }, [currentUser]);
 
   // Data Entry User may only access the create individual lead page
   useEffect(() => {
@@ -266,10 +283,6 @@ export default function SuperAdminLayout({ children }: { children: ReactNode }) 
       return buildFullAccessPermissions();
     }
 
-    if (currentUser.roleName === 'Sub Super Admin') {
-      return sanitizeSubAdminPermissions(currentUser.permissions || {});
-    }
-
     if (currentUser.roleName === 'Data Entry User') {
       const dataEntryPerms: Record<PermissionModuleKey, ModulePermission> = {} as Record<
         PermissionModuleKey,
@@ -284,7 +297,10 @@ export default function SuperAdminLayout({ children }: { children: ReactNode }) 
       return dataEntryPerms;
     }
 
-    return {};
+    // Sub Super Admin and custom roles: apply granted module permissions
+    return sanitizeSubAdminPermissions(
+      (currentUser.permissions || {}) as unknown as Record<string, ModulePermission>
+    );
   }, [currentUser]);
 
   const navItems = useMemo(() => {

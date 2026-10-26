@@ -267,6 +267,23 @@ export const login = async (req, res) => {
       permissions = {};
     }
 
+    // Fallback to role_configurations baseline permissions if user permissions are empty
+    if (Object.keys(permissions).length === 0 && userData.role_name) {
+      try {
+        const [roleConfig] = await pool.execute(
+          'SELECT permissions FROM role_configurations WHERE LOWER(name) = LOWER(?)',
+          [String(userData.role_name).trim()]
+        );
+        if (roleConfig.length > 0 && roleConfig[0].permissions) {
+          permissions = typeof roleConfig[0].permissions === 'string'
+            ? JSON.parse(roleConfig[0].permissions)
+            : roleConfig[0].permissions;
+        }
+      } catch (roleErr) {
+        console.error('Error loading role baseline permissions in login:', roleErr);
+      }
+    }
+
     const timeTrackingEnabled = userData.time_tracking_enabled === undefined
       ? true
       : (userData.time_tracking_enabled === 1 || userData.time_tracking_enabled === true);
@@ -349,6 +366,23 @@ export const getMe = async (req, res) => {
     } catch (parseError) {
       console.error('Error parsing permissions JSON:', parseError);
       permissions = {};
+    }
+
+    // Fallback to role_configurations baseline permissions if user permissions are empty
+    if (Object.keys(permissions).length === 0 && userData.role_name) {
+      try {
+        const [roleConfig] = await pool.execute(
+          'SELECT permissions FROM role_configurations WHERE LOWER(name) = LOWER(?)',
+          [String(userData.role_name).trim()]
+        );
+        if (roleConfig.length > 0 && roleConfig[0].permissions) {
+          permissions = typeof roleConfig[0].permissions === 'string'
+            ? JSON.parse(roleConfig[0].permissions)
+            : roleConfig[0].permissions;
+        }
+      } catch (roleErr) {
+        console.error('Error loading role baseline permissions in getMe:', roleErr);
+      }
     }
 
     const timeTrackingEnabled = userData.time_tracking_enabled === undefined

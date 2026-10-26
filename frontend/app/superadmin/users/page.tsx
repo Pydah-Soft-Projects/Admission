@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { userAPI, managerAPI, leadAPI } from '@/lib/api';
+import { userAPI, leadAPI, roleAPI, RoleConfigItem } from '@/lib/api';
 import { useInstitutions } from '@/lib/useInstitutions';
 import type { User, ModulePermission, RoleName } from '@/types';
 import * as XLSX from 'xlsx';
@@ -82,56 +82,33 @@ const IconX = ({ className = 'w-4 h-4' }: { className?: string }) => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
   </svg>
 );
-const IconHistory = ({ className = 'w-4 h-4' }: { className?: string }) => (
-  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
-type UserAuditLog = {
-  id: string;
-  targetUserId: string | null;
-  targetUserName: string | null;
-  targetUserEmail: string | null;
-  action: 'create' | 'update' | 'delete';
-  changedBy: string | null;
-  changedByName: string | null;
-  changes: Record<string, { from?: unknown; to?: unknown }>;
-  ipAddress?: string | null;
-  createdAt: string;
-};
-
-const AUDIT_FIELD_LABELS: Record<string, string> = {
-  name: 'Name',
-  email: 'Email',
-  mobileNumber: 'Mobile',
-  roleName: 'Role',
-  designation: 'Designation',
-  isActive: 'Active',
-  isManager: 'Manager',
-  managedBy: 'Managed by',
-  permissions: 'Permissions',
-  hrms_id: 'HRMS ID',
-  emp_no: 'Employee No',
-  password: 'Password',
-};
-
-const formatAuditValue = (value: unknown): string => {
-  if (value === null || value === undefined || value === '') return '—';
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (typeof value === 'object') {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
-  }
-  return String(value);
-};
+interface HrmsSearchResult {
+  _id?: string;
+  id?: string;
+  emp_no?: string | number;
+  name?: string;
+  email?: string;
+  mobileNumber?: string;
+  division?: string;
+  department?: string;
+  group?: string;
+  designation?: string;
+}
 
 const IconFileExport = ({ className = 'w-4 h-4' }: { className?: string }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+  </svg>
+);
+const IconCog = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+  </svg>
+);
+const IconPlus = ({ className = 'w-4 h-4' }: { className?: string }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
   </svg>
 );
 
@@ -149,6 +126,45 @@ const UserManagementPage = () => {
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [selectedRole, setSelectedRole] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+
+  // Role Configurations Query & State
+  const { data: configuredRolesData, isLoading: isLoadingRoles } = useQuery({
+    queryKey: ['roleConfigurations'],
+    queryFn: async () => roleAPI.getAll(),
+  });
+  const configuredRoles: RoleConfigItem[] = useMemo(() => {
+    if (Array.isArray(configuredRolesData)) return configuredRolesData;
+    if (Array.isArray((configuredRolesData as unknown as { data?: RoleConfigItem[] })?.data)) {
+      return (configuredRolesData as unknown as { data: RoleConfigItem[] }).data;
+    }
+    return [];
+  }, [configuredRolesData]);
+
+  const [showRoleConfigModal, setShowRoleConfigModal] = useState(false);
+  const [selectedRoleForConfig, setSelectedRoleForConfig] = useState<RoleConfigItem | null>(null);
+  const [isCreatingRole, setIsCreatingRole] = useState(false);
+  const [newRoleForm, setNewRoleForm] = useState({
+    name: '',
+    description: '',
+    color: '#0ea5e9',
+  });
+  const [rolePermissionsDraft, setRolePermissionsDraft] = useState<Record<string, Record<string, unknown>>>({});
+  const [isSavingRole, setIsSavingRole] = useState(false);
+
+  // Role Deletion & Transfer Modals
+  const [roleToDelete, setRoleToDelete] = useState<RoleConfigItem | null>(null);
+  const [showTransferDeleteModal, setShowTransferDeleteModal] = useState(false);
+  const [transferTargetRole, setTransferTargetRole] = useState('');
+  const [showDirectDeleteModal, setShowDirectDeleteModal] = useState(false);
+  const [isDeletingRole, setIsDeletingRole] = useState(false);
+
+  // Sync selected role when modal opens or roles load
+  useEffect(() => {
+    if (configuredRoles.length > 0 && !selectedRoleForConfig && !isCreatingRole) {
+      setSelectedRoleForConfig(configuredRoles[0]);
+      setRolePermissionsDraft(configuredRoles[0].permissions || {});
+    }
+  }, [configuredRoles, selectedRoleForConfig, isCreatingRole]);
 
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [showEditUser, setShowEditUser] = useState(false);
@@ -223,7 +239,7 @@ const UserManagementPage = () => {
   }, [filterOptionsData]);
 
   const [hrmsSearchTerm, setHrmsSearchTerm] = useState('');
-  const [hrmsResults, setHrmsResults] = useState<any[]>([]);
+  const [hrmsResults, setHrmsResults] = useState<HrmsSearchResult[]>([]);
   const [isSearchingHrms, setIsSearchingHrms] = useState(false);
   const [showTeamAssignmentModal, setShowTeamAssignmentModal] = useState(false);
   const [selectedUserForAssignment, setSelectedUserForAssignment] = useState<User | null>(null);
@@ -240,7 +256,28 @@ const UserManagementPage = () => {
     staleTime: 60000,
   });
 
-  const users = (data?.data || data || []) as User[];
+  const users = useMemo(() => (data?.data || data || []) as User[], [data]);
+
+  const getRoleStaffCount = useCallback((roleName?: string, fallbackCount = 0) => {
+    if (!roleName) return fallbackCount;
+    const target = roleName.trim().toLowerCase();
+    if (Array.isArray(users) && users.length > 0) {
+      return users.filter((u) => String(u.roleName || '').trim().toLowerCase() === target).length;
+    }
+    return fallbackCount;
+  }, [users]);
+
+  const activeRole: RoleConfigItem | null = useMemo(() => {
+    if (isCreatingRole) return null;
+    if (!selectedRoleForConfig) return configuredRoles[0] || null;
+    return (
+      configuredRoles.find(
+        (r) =>
+          r.id === selectedRoleForConfig.id ||
+          String(r.name).trim().toLowerCase() === String(selectedRoleForConfig.name).trim().toLowerCase()
+      ) || selectedRoleForConfig
+    );
+  }, [configuredRoles, selectedRoleForConfig, isCreatingRole]);
 
   const stats = useMemo(() => {
     return {
@@ -249,6 +286,7 @@ const UserManagementPage = () => {
       counselors: users.filter(u => u.roleName === 'Student Counselor').length,
       dataEntry: users.filter(u => u.roleName === 'Data Entry User').length,
       pro: users.filter(u => u.roleName === 'PRO').length,
+      customRoles: users.filter(u => !['Super Admin', 'Sub Super Admin', 'Student Counselor', 'Data Entry User', 'PRO'].includes(u.roleName)).length,
     };
   }, [users]);
 
@@ -264,6 +302,9 @@ const UserManagementPage = () => {
       if (u.group && u.group !== '-') groups.add(u.group);
       if (u.roleName) roles.add(u.roleName);
     });
+    configuredRoles.forEach((r) => {
+      if (r.name) roles.add(r.name);
+    });
 
     return {
       divisions: Array.from(divs).sort(),
@@ -271,7 +312,7 @@ const UserManagementPage = () => {
       groups: Array.from(groups).sort(),
       roles: Array.from(roles).sort()
     };
-  }, [users]);
+  }, [users, configuredRoles]);
 
   const filteredUsers = useMemo(() => {
     return users.filter((user) => {
@@ -321,6 +362,23 @@ const UserManagementPage = () => {
             </button>
           </div>
           <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setIsCreatingRole(false);
+              const targetRole = selectedRoleForConfig || (configuredRoles.length > 0 ? configuredRoles[0] : null);
+              if (targetRole) {
+                setSelectedRoleForConfig(targetRole);
+                setRolePermissionsDraft(targetRole.permissions || {});
+              }
+              setShowRoleConfigModal(true);
+            }}
+            className="h-9 shrink-0 px-3.5 font-semibold flex items-center gap-1.5 border-slate-300 hover:bg-slate-50 text-slate-700 dark:border-slate-700 dark:text-slate-200 rounded-xl shadow-xs"
+          >
+            <IconCog className="w-4 h-4 text-[#0ea5e9]" />
+            <span>Role Configuration</span>
+          </Button>
+          <Button
             variant="primary"
             size="sm"
             onClick={() => setShowCreateUser(true)}
@@ -332,7 +390,7 @@ const UserManagementPage = () => {
         </div>
       </div>
     ),
-    [searchTerm, viewMode, canManageUsers]
+    [viewMode, canManageUsers, configuredRoles, selectedRoleForConfig]
   );
 
   useEffect(() => {
@@ -356,9 +414,11 @@ const UserManagementPage = () => {
       setHrmsSearchTerm('');
       setHrmsResults([]);
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['roleConfigurations'] });
     },
-    onError: (error: any) => {
-      showToast.error(error.response?.data?.message || 'Failed to create user');
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } };
+      showToast.error(err.response?.data?.message || 'Failed to create user');
     },
   });
 
@@ -367,6 +427,7 @@ const UserManagementPage = () => {
       userAPI.update(user._id, { isActive: !user.isActive, unassignLeads }),
     onSuccess: (_, { user }) => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['roleConfigurations'] });
       // Update selected user detail if open
       if (selectedUserDetail && selectedUserDetail._id === user._id) {
         setSelectedUserDetail(prev => prev ? ({ ...prev, isActive: !prev.isActive }) : null);
@@ -386,10 +447,12 @@ const UserManagementPage = () => {
       setSelectedUserForAssignment(null);
       setSelectedManagerId('');
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['roleConfigurations'] });
       setShowUserDetail(false); // Close detail modal after assignment to refresh context or start fresh
     },
-    onError: (error: any) => {
-      showToast.error(error.response?.data?.message || 'Failed to update team assignment');
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } };
+      showToast.error(err.response?.data?.message || 'Failed to update team assignment');
     },
   });
 
@@ -404,12 +467,14 @@ const UserManagementPage = () => {
       const action = user.isManager ? 'promoted to' : 'revoked';
       showToast.success(`User ${action} Manager successfully`);
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['roleConfigurations'] });
       if (selectedUserDetail && selectedUserDetail._id === user._id) {
         setSelectedUserDetail(prev => prev ? ({ ...prev, isManager: !prev.isManager }) : null);
       }
     },
-    onError: (error: any) => {
-      showToast.error(error.response?.data?.message || 'Failed to update user role');
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } };
+      showToast.error(err.response?.data?.message || 'Failed to update user role');
     },
   });
 
@@ -430,12 +495,14 @@ const UserManagementPage = () => {
       setShowEditUser(false);
       setEditingUser(null);
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['roleConfigurations'] });
       setShowUserDetail(false);
       setHrmsSearchTerm('');
       setHrmsResults([]);
     },
-    onError: (error: any) => {
-      showToast.error(error.response?.data?.message || 'Failed to update user');
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } };
+      showToast.error(err.response?.data?.message || 'Failed to update user');
     },
   });
 
@@ -478,10 +545,12 @@ const UserManagementPage = () => {
     onSuccess: () => {
       showToast.success('User deleted successfully');
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['roleConfigurations'] });
       setShowUserDetail(false);
     },
-    onError: (error: any) => {
-      showToast.error(error.response?.data?.message || 'Failed to delete user');
+    onError: (error: unknown) => {
+      const err = error as { response?: { data?: { message?: string } } };
+      showToast.error(err.response?.data?.message || 'Failed to delete user');
     },
   });
 
@@ -569,26 +638,26 @@ const UserManagementPage = () => {
     }
   };
 
-  const handleSelectHrmsEmployee = (emp: any, isEdit: boolean = false) => {
+  const handleSelectHrmsEmployee = (emp: HrmsSearchResult, isEdit: boolean = false) => {
     if (isEdit) {
       setEditFormState(prev => ({
         ...prev,
-        name: emp.name,
-        email: emp.email || prev.email,
-        mobileNumber: emp.mobileNumber || prev.mobileNumber,
-        emp_no: emp.emp_no,
-        hrms_id: emp.id || emp._id,
-        designation: emp.designation || prev.designation,
+        name: String(emp.name || ''),
+        email: (emp.email as string) || prev.email,
+        mobileNumber: (emp.mobileNumber as string) || prev.mobileNumber,
+        emp_no: (emp.emp_no as string | number | undefined)?.toString() || '',
+        hrms_id: ((emp.id || emp._id) as string) || '',
+        designation: (emp.designation as string) || prev.designation,
       }));
     } else {
       setFormState(prev => ({
         ...prev,
-        name: emp.name,
-        email: emp.email || prev.email,
-        mobileNumber: emp.mobileNumber || prev.mobileNumber,
-        emp_no: emp.emp_no,
-        hrms_id: emp.id || emp._id,
-        designation: emp.designation || prev.designation,
+        name: String(emp.name || ''),
+        email: (emp.email as string) || prev.email,
+        mobileNumber: (emp.mobileNumber as string) || prev.mobileNumber,
+        emp_no: (emp.emp_no as string | number | undefined)?.toString() || '',
+        hrms_id: ((emp.id || emp._id) as string) || '',
+        designation: (emp.designation as string) || prev.designation,
       }));
     }
     setHrmsResults([]);
@@ -634,7 +703,8 @@ const UserManagementPage = () => {
       payload.designation = formState.designation?.trim() || undefined;
     }
 
-    if (formState.roleName === 'Sub Super Admin') {
+    const isCustomRole = !['Super Admin', 'Sub Super Admin', 'Student Counselor', 'Data Entry User', 'PRO'].includes(formState.roleName);
+    if (formState.roleName === 'Sub Super Admin' || isCustomRole) {
       const selectedPermissions = Object.entries(permissionState).reduce((acc, [key, value]) => {
         if (value.access) {
           acc[key as PermissionModuleKey] = modulePermissionForSave(key, value);
@@ -642,12 +712,14 @@ const UserManagementPage = () => {
         return acc;
       }, {} as Record<PermissionModuleKey, ModulePermission>);
 
-      if (Object.keys(selectedPermissions).length === 0) {
+      if (Object.keys(selectedPermissions).length === 0 && formState.roleName === 'Sub Super Admin') {
         showToast.error('Select at least one module to grant access');
         return;
       }
 
-      payload.permissions = selectedPermissions;
+      if (Object.keys(selectedPermissions).length > 0) {
+        payload.permissions = selectedPermissions;
+      }
     }
 
     if (allowedSourcesState.length > 0) {
@@ -664,10 +736,21 @@ const UserManagementPage = () => {
       roleName: roleName as RoleName,
       designation: '',
     }));
-    if (roleName === 'Sub Super Admin') {
+    const matchedRole = configuredRoles.find(
+      (r) => String(r.name).trim().toLowerCase() === String(roleName).trim().toLowerCase()
+    );
+    if (matchedRole && matchedRole.permissions) {
+      const newPerms = createEmptyPermissions();
+      Object.entries(matchedRole.permissions).forEach(([modKey, val]) => {
+        const k = (modKey === 'userManagement' ? 'users' : modKey) as PermissionModuleKey;
+        if (newPerms[k] && typeof val === 'object' && val !== null) {
+          newPerms[k] = { ...newPerms[k], ...(val as object) } as ModulePermission;
+        }
+      });
+      setPermissionState(newPerms);
+    } else if (roleName === 'Sub Super Admin') {
       setPermissionState(createEmptyPermissions());
     }
-    // Note: Manager is now handled via isManager boolean, not roleName
   };
 
   const handleEditRoleChange = (roleName: string) => {
@@ -676,8 +759,187 @@ const UserManagementPage = () => {
       roleName: roleName as RoleName,
       designation: '',
     }));
-    if (roleName === 'Sub Super Admin') {
+    const matchedRole = configuredRoles.find(
+      (r) => String(r.name).trim().toLowerCase() === String(roleName).trim().toLowerCase()
+    );
+    if (matchedRole && matchedRole.permissions) {
+      const newPerms = createEmptyPermissions();
+      Object.entries(matchedRole.permissions).forEach(([modKey, val]) => {
+        const k = (modKey === 'userManagement' ? 'users' : modKey) as PermissionModuleKey;
+        if (newPerms[k] && typeof val === 'object' && val !== null) {
+          newPerms[k] = { ...newPerms[k], ...(val as object) } as ModulePermission;
+        }
+      });
+      setEditPermissionState(newPerms);
+    } else if (roleName === 'Sub Super Admin') {
       setEditPermissionState(createEmptyPermissions());
+    }
+  };
+
+  // Role Configuration Handlers
+  const handleDraftPermChange = (moduleKey: PermissionModuleKey, level: 'off' | 'view' | 'full') => {
+    setRolePermissionsDraft((prev) => {
+      const existing = (prev[moduleKey] || (moduleKey === 'users' ? prev['userManagement'] : undefined) || {}) as Record<string, unknown>;
+      const newModulePerm =
+        level === 'off'
+          ? {
+              ...existing,
+              access: false,
+              permission: 'read',
+            }
+          : {
+              ...existing,
+              access: true,
+              permission: level === 'full' ? 'write' : 'read',
+              ...(moduleKey === JOINING_PERMISSION_KEY && !existing.access
+                ? {
+                    ...defaultJoiningPermissionExtras(),
+                    ...defaultJoiningPageExtras(),
+                    ...defaultAdmissionTabExtras(),
+                  }
+                : {}),
+            };
+
+      const updated = {
+        ...prev,
+        [moduleKey]: newModulePerm,
+      };
+      if (moduleKey === 'users') {
+        updated.userManagement = newModulePerm;
+      }
+      return updated;
+    });
+  };
+
+  const handleSaveRoleConfig = async () => {
+    const targetRole = activeRole || selectedRoleForConfig;
+    if (!targetRole) return;
+    setIsSavingRole(true);
+    try {
+      const toSave = { ...rolePermissionsDraft };
+      if (toSave.users) {
+        toSave.userManagement = toSave.users;
+      } else if (toSave.userManagement) {
+        toSave.users = toSave.userManagement;
+      }
+      const updated = await roleAPI.update(targetRole.id, {
+        permissions: toSave,
+        description: targetRole.description,
+        color: targetRole.color,
+      });
+      showToast.success(`Role "${targetRole.name}" permissions updated`);
+      queryClient.invalidateQueries({ queryKey: ['roleConfigurations'] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      if (updated) {
+        setSelectedRoleForConfig(updated);
+      }
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to update role';
+      showToast.error(msg);
+    } finally {
+      setIsSavingRole(false);
+    }
+  };
+
+  const handleCreateNewRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRoleForm.name.trim()) {
+      showToast.error('Please enter a role name');
+      return;
+    }
+    setIsSavingRole(true);
+    try {
+      const toSave = { ...rolePermissionsDraft };
+      if (toSave.users) {
+        toSave.userManagement = toSave.users;
+      } else if (toSave.userManagement) {
+        toSave.users = toSave.userManagement;
+      }
+      const created = await roleAPI.create({
+        name: newRoleForm.name.trim(),
+        description: newRoleForm.description.trim(),
+        color: newRoleForm.color,
+        permissions: toSave,
+      });
+      showToast.success(`Role "${created.name}" created successfully`);
+      queryClient.invalidateQueries({ queryKey: ['roleConfigurations'] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setIsCreatingRole(false);
+      setNewRoleForm({ name: '', description: '', color: '#0ea5e9' });
+      setSelectedRoleForConfig(created);
+      setRolePermissionsDraft(created.permissions || {});
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to create role';
+      showToast.error(msg);
+    } finally {
+      setIsSavingRole(false);
+    }
+  };
+
+  const initiateDeleteRole = (role: RoleConfigItem) => {
+    if (role.name === 'Super Admin' || role.id === 'super-admin') {
+      showToast.error('Super Admin role cannot be deleted');
+      return;
+    }
+    setRoleToDelete(role);
+    const count = getRoleStaffCount(role.name, role.userCount || 0);
+    if (count > 0) {
+      const availableTargets = configuredRoles.filter((r) => r.id !== role.id && r.name !== role.name);
+      setTransferTargetRole(availableTargets[0]?.name || 'Student Counselor');
+      setShowTransferDeleteModal(true);
+    } else {
+      setShowDirectDeleteModal(true);
+    }
+  };
+
+  const handleConfirmDirectDelete = async () => {
+    if (!roleToDelete) return;
+    setIsDeletingRole(true);
+    try {
+      await roleAPI.delete(roleToDelete.id);
+      showToast.success(`Role "${roleToDelete.name}" deleted successfully`);
+      queryClient.invalidateQueries({ queryKey: ['roleConfigurations'] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setShowDirectDeleteModal(false);
+      if (selectedRoleForConfig?.id === roleToDelete.id) {
+        const next = configuredRoles.find((r) => r.id !== roleToDelete.id);
+        setSelectedRoleForConfig(next || null);
+        if (next) setRolePermissionsDraft(next.permissions || {});
+      }
+      setRoleToDelete(null);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to delete role';
+      showToast.error(msg);
+    } finally {
+      setIsDeletingRole(false);
+    }
+  };
+
+  const handleConfirmTransferDelete = async () => {
+    if (!roleToDelete) return;
+    if (!transferTargetRole) {
+      showToast.error('Please select a target role to transfer users to');
+      return;
+    }
+    setIsDeletingRole(true);
+    try {
+      const res = await roleAPI.delete(roleToDelete.id, transferTargetRole);
+      const count = res?.transferredCount ?? getRoleStaffCount(roleToDelete.name, roleToDelete.userCount || 0);
+      showToast.success(`Role "${roleToDelete.name}" deleted and ${count} user(s) transferred to "${transferTargetRole}"`);
+      queryClient.invalidateQueries({ queryKey: ['roleConfigurations'] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setShowTransferDeleteModal(false);
+      if (selectedRoleForConfig?.id === roleToDelete.id) {
+        const next = configuredRoles.find((r) => r.id !== roleToDelete.id);
+        setSelectedRoleForConfig(next || null);
+        if (next) setRolePermissionsDraft(next.permissions || {});
+      }
+      setRoleToDelete(null);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to transfer users and delete role';
+      showToast.error(msg);
+    } finally {
+      setIsDeletingRole(false);
     }
   };
 
@@ -736,14 +998,9 @@ const UserManagementPage = () => {
     return null;
   }
 
-  const isSubSuperAdmin = formState.roleName === 'Sub Super Admin';
-
-  const actionBtnClass = 'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition disabled:opacity-50 disabled:pointer-events-none shrink-0';
-  const actionBtnBase = `${actionBtnClass} border-slate-300 text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:border-slate-600 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-100`;
-
   return (
     <div className="w-full space-y-6">
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+      <div className={`grid grid-cols-2 gap-4 md:grid-cols-3 ${stats.customRoles > 0 ? 'lg:grid-cols-6' : 'lg:grid-cols-5'}`}>
         <Card className="p-4 bg-[#3b82f6] text-[#ffffff] border-none shadow-md dark:bg-[#2563eb]">
           <div className="text-xs font-medium text-[#f1f5f9] uppercase tracking-wider">Total Users</div>
           <div className="mt-1 text-2xl font-bold text-[#ffffff]">{stats.total}</div>
@@ -764,6 +1021,12 @@ const UserManagementPage = () => {
           <div className="text-xs font-medium text-[#f1f5f9] uppercase tracking-wider">PRO</div>
           <div className="mt-1 text-2xl font-bold text-[#ffffff]">{stats.pro}</div>
         </Card>
+        {stats.customRoles > 0 && (
+          <Card className="p-4 bg-[#6366f1] text-[#ffffff] border-none shadow-md dark:bg-[#4f46e5]">
+            <div className="text-xs font-medium text-[#f1f5f9] uppercase tracking-wider">Custom Roles</div>
+            <div className="mt-1 text-2xl font-bold text-[#ffffff]">{stats.customRoles}</div>
+          </Card>
+        )}
       </div>
 
       {/* Advanced Filter Bar */}
@@ -1221,11 +1484,11 @@ const UserManagementPage = () => {
                     <div className="space-y-3">
                       <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Module access</h3>
                       <div className="max-h-96 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-900/50">
-                        {PERMISSION_MODULES.filter((m) => selectedUserDetail.permissions?.[m.key]?.access).length ===
+                        {PERMISSION_MODULES.filter((m) => (selectedUserDetail.permissions?.[m.key] as ModulePermission | undefined)?.access).length ===
                         0 ? (
                           <p className="text-xs text-slate-500">No modules assigned.</p>
                         ) : (
-                          PERMISSION_MODULES.filter((m) => selectedUserDetail.permissions?.[m.key]?.access).map(
+                          PERMISSION_MODULES.filter((m) => (selectedUserDetail.permissions?.[m.key] as ModulePermission | undefined)?.access).map(
                             (module) => {
                               const entry = selectedUserDetail.permissions?.[module.key] as
                                 | ModulePermission
@@ -1391,12 +1654,15 @@ const UserManagementPage = () => {
                     hrms_id: selectedUserDetail.hrms_id || '',
                     emp_no: selectedUserDetail.emp_no || '',
                   });
-                  if (selectedUserDetail.roleName === 'Sub Super Admin') {
+                  if (selectedUserDetail.roleName !== 'Super Admin') {
                     const base = createEmptyPermissions();
-                    const userPerms = selectedUserDetail.permissions || {};
+                    const matchedRole = configuredRoles.find((r) => r.name === selectedUserDetail.roleName);
+                    const userPerms = (selectedUserDetail.permissions && Object.keys(selectedUserDetail.permissions).length > 0)
+                      ? selectedUserDetail.permissions
+                      : (matchedRole?.permissions || {});
                     const seeded: Record<PermissionModuleKey, ModulePermission> = { ...base };
                     PERMISSION_MODULES.forEach((module) => {
-                      const entry = userPerms[module.key] as ModulePermission | undefined;
+                      const entry = (userPerms[module.key] || (module.key === 'users' ? userPerms['userManagement'] : undefined)) as ModulePermission | undefined;
                       if (entry?.access) {
                         const permission = entry.permission === 'write' ? 'write' : 'read';
                         seeded[module.key] =
@@ -1636,18 +1902,26 @@ const UserManagementPage = () => {
                         onChange={(event) => handleRoleChange(event.target.value)}
                         className="w-full rounded-xl border-2 border-gray-200 bg-white/80 px-4 py-3 text-sm font-medium text-slate-600 transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-100"
                       >
-                        <option value="Student Counselor">Student Counselor</option>
-                        <option value="Data Entry User">Data Entry User</option>
-                        <option value="PRO">PRO</option>
-                        <option value="Sub Super Admin">Sub Super Admin</option>
-                        <option value="Super Admin">Super Admin</option>
+                        {(configuredRoles.length > 0 ? configuredRoles : [
+                          { id: '1', name: 'Student Counselor' },
+                          { id: '2', name: 'Data Entry User' },
+                          { id: '3', name: 'PRO' },
+                          { id: '4', name: 'Sub Super Admin' },
+                          { id: '5', name: 'Super Admin' },
+                        ])
+                          .filter((r) => r.name !== 'Super Admin' || currentUser?.roleName === 'Super Admin')
+                          .map((r) => (
+                            <option key={r.id || r.name} value={r.name}>
+                              {r.name}
+                            </option>
+                          ))}
                       </select>
                     </div>
                   </div>
 
                   {/* Right Column: Other Info */}
                   <div className="space-y-4">
-                    {formState.roleName === 'Sub Super Admin' && (
+                    {(formState.roleName === 'Sub Super Admin' || !['Super Admin', 'Student Counselor', 'Data Entry User', 'PRO'].includes(formState.roleName)) && (
                       <div className="flex h-full flex-col gap-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 dark:border-blue-900/40 dark:bg-blue-900/20">
                         <div className="space-y-1">
                           <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200">
@@ -1884,7 +2158,8 @@ const UserManagementPage = () => {
                   payload.designation = editFormState.designation?.trim() || undefined;
                 }
 
-                if (editFormState.roleName === 'Sub Super Admin') {
+                const isCustomRole = !['Super Admin', 'Sub Super Admin', 'Student Counselor', 'Data Entry User', 'PRO'].includes(editFormState.roleName);
+                if (editFormState.roleName === 'Sub Super Admin' || isCustomRole) {
                   const selectedPermissions = Object.entries(editPermissionState).reduce(
                     (acc, [key, value]) => {
                       if (value.access) {
@@ -1895,12 +2170,14 @@ const UserManagementPage = () => {
                     {} as Record<PermissionModuleKey, ModulePermission>
                   );
 
-                  if (Object.keys(selectedPermissions).length === 0) {
+                  if (Object.keys(selectedPermissions).length === 0 && editFormState.roleName === 'Sub Super Admin') {
                     showToast.error('Select at least one module to grant access');
                     return;
                   }
 
-                  payload.permissions = selectedPermissions;
+                  if (Object.keys(selectedPermissions).length > 0) {
+                    payload.permissions = selectedPermissions;
+                  }
                 }
 
                 if (editAllowedSourcesState.length > 0) {
@@ -2044,18 +2321,26 @@ const UserManagementPage = () => {
                         onChange={(event) => handleEditRoleChange(event.target.value)}
                         className="w-full rounded-xl border-2 border-gray-200 bg-white/80 px-4 py-3 text-sm font-medium text-slate-600 transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-100"
                       >
-                        <option value="Student Counselor">Student Counselor</option>
-                        <option value="Data Entry User">Data Entry User</option>
-                        <option value="PRO">PRO</option>
-                        <option value="Sub Super Admin">Sub Super Admin</option>
-                        <option value="Super Admin">Super Admin</option>
+                        {(configuredRoles.length > 0 ? configuredRoles : [
+                          { id: '1', name: 'Student Counselor' },
+                          { id: '2', name: 'Data Entry User' },
+                          { id: '3', name: 'PRO' },
+                          { id: '4', name: 'Sub Super Admin' },
+                          { id: '5', name: 'Super Admin' },
+                        ])
+                          .filter((r) => r.name !== 'Super Admin' || currentUser?.roleName === 'Super Admin')
+                          .map((r) => (
+                            <option key={r.id || r.name} value={r.name}>
+                              {r.name}
+                            </option>
+                          ))}
                       </select>
                     </div>
                   </div>
 
                   {/* Right Column: Other Info */}
                   <div className="space-y-4">
-                    {editFormState.roleName === 'Sub Super Admin' && (
+                    {(editFormState.roleName === 'Sub Super Admin' || !['Super Admin', 'Student Counselor', 'Data Entry User', 'PRO'].includes(editFormState.roleName)) && (
                       <div className="flex h-full flex-col gap-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 dark:border-blue-900/40 dark:bg-blue-900/20">
                         <div className="space-y-1">
                           <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200">
@@ -2306,7 +2591,7 @@ const UserManagementPage = () => {
                 {managers.length === 0 ? (
                   <div className="rounded-xl border-2 border-amber-200 bg-amber-50/80 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
                     <p className="text-sm text-amber-800 dark:text-amber-200">
-                      No managers available. Please create a manager first by creating a user with the "Manager" role.
+                      No managers available. Please create a manager first by creating a user with the &quot;Manager&quot; role.
                     </p>
                   </div>
                 ) : (
@@ -2326,7 +2611,7 @@ const UserManagementPage = () => {
                 )}
                 {managers.length > 0 && (
                   <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                    Select a manager to assign this user to their team, or select "No Manager" to remove the assignment.
+                    Select a manager to assign this user to their team, or select &quot;No Manager&quot; to remove the assignment.
                   </p>
                 )}
               </div>
@@ -2371,13 +2656,705 @@ const UserManagementPage = () => {
           </div>
         </Card>
       )}
+
+      {/* ========================================================================= */}
+      {/* ROLE CONFIGURATION MODAL                                                 */}
+      {/* ========================================================================= */}
+      <Dialog open={showRoleConfigModal} onOpenChange={setShowRoleConfigModal}>
+        <DialogContent className="max-w-5xl w-full p-0 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl bg-white dark:bg-slate-900">
+          <DialogTitle className="sr-only">Role Configuration & Permissions</DialogTitle>
+          <DialogDescription className="sr-only">
+            Configure baseline module permissions, grant more access to roles, or create new custom roles.
+          </DialogDescription>
+          {/* Header */}
+          <div className="p-4 px-6 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#0ea5e9] flex items-center justify-center text-white shadow-xs">
+                <IconCog className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  Role Configuration & Permissions
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Configure baseline module permissions, give more access to roles, or create new custom roles.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowRoleConfigModal(false)}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg p-1.5 transition-colors"
+            >
+              <IconX className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Modal Body: Left sidebar + Right Workspace */}
+          <div className="flex flex-col md:flex-row h-[72vh] overflow-hidden">
+            {/* Left Sidebar: Roles List & + Create New Role */}
+            <div className="w-full md:w-72 border-r border-slate-100 dark:border-slate-800 flex flex-col bg-slate-50/50 dark:bg-slate-900/40">
+              <div className="p-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Roles ({configuredRoles.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreatingRole(true);
+                    setNewRoleForm({ name: '', description: '', color: '#0ea5e9' });
+                    setRolePermissionsDraft(createEmptyPermissions() as unknown as Record<string, Record<string, unknown>>);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs ${
+                    isCreatingRole
+                      ? 'bg-[#0ea5e9] text-white'
+                      : 'bg-[#e0f2fe] hover:bg-[#bae6fd] text-[#0284c7] dark:bg-sky-950/50 dark:text-sky-300'
+                  }`}
+                >
+                  <IconPlus className="w-3.5 h-3.5" />
+                  <span>New Role</span>
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
+                {isLoadingRoles ? (
+                  <div className="py-8 text-center text-xs text-slate-400">Loading roles...</div>
+                ) : (
+                  configuredRoles.map((role) => {
+                    const isSelected = !isCreatingRole && (
+                      (activeRole?.id && activeRole.id === role.id) ||
+                      (activeRole?.name && activeRole.name === role.name) ||
+                      selectedRoleForConfig?.id === role.id ||
+                      selectedRoleForConfig?.name === role.name
+                    );
+                    const liveCount = getRoleStaffCount(role.name, role.userCount || 0);
+                    return (
+                      <div
+                        key={role.id || role.name}
+                        onClick={() => {
+                          setIsCreatingRole(false);
+                          setSelectedRoleForConfig(role);
+                          setRolePermissionsDraft(role.permissions || {});
+                        }}
+                        className={`group relative flex items-center justify-between p-3 rounded-xl border text-xs cursor-pointer transition-all ${
+                          isSelected
+                            ? 'bg-white dark:bg-slate-800 border-[#0ea5e9] shadow-sm ring-1 ring-[#0ea5e9]'
+                            : 'bg-white/60 dark:bg-slate-800/40 border-slate-200/70 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span
+                            className="w-3 h-3 rounded-full shrink-0"
+                            style={{ backgroundColor: role.color || '#0ea5e9' }}
+                          />
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-800 dark:text-slate-100 truncate flex items-center gap-1.5">
+                              <span>{role.name}</span>
+                              {role.name === 'Super Admin' || role.id === 'super-admin' ? (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 font-semibold border border-amber-200 dark:border-amber-800">
+                                  Root Admin
+                                </span>
+                              ) : role.isSystem ? (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300 font-semibold">
+                                  System
+                                </span>
+                              ) : (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300 font-semibold">
+                                  Custom
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">
+                              {liveCount} staff assigned
+                            </div>
+                          </div>
+                        </div>
+
+                        {role.name !== 'Super Admin' && role.id !== 'super-admin' && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              initiateDeleteRole(role);
+                            }}
+                            title={`Delete role "${role.name}"`}
+                            className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors shrink-0 ml-1"
+                          >
+                            <IconTrash className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Right Workspace */}
+            <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-slate-900">
+              {isCreatingRole ? (
+                /* Mode A: Create New Role */
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/20">
+                    <h4 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#0ea5e9]"></span>
+                      Create New Role
+                    </h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      Define a brand new role with custom permissions to assign to counselors or coordinators.
+                    </p>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                          Role Name *
+                        </label>
+                        <Input
+                          placeholder="e.g. Telecaller, Accounts Head, Field Lead..."
+                          value={newRoleForm.name}
+                          onChange={(e) => setNewRoleForm((prev) => ({ ...prev, name: e.target.value }))}
+                          className="h-10 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                          Role Badge Color
+                        </label>
+                        <div className="flex items-center gap-2 h-10">
+                          {['#0ea5e9', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#6366f1', '#14b8a6', '#f97316'].map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setNewRoleForm((prev) => ({ ...prev, color }))}
+                              className={`w-7 h-7 rounded-full transition-transform ${
+                                newRoleForm.color === color ? 'ring-2 ring-offset-2 ring-slate-800 scale-110' : 'hover:scale-105'
+                              }`}
+                              style={{ backgroundColor: color }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                          Description
+                        </label>
+                        <Input
+                          placeholder="Short summary of responsibilities for this role..."
+                          value={newRoleForm.description}
+                          onChange={(e) => setNewRoleForm((prev) => ({ ...prev, description: e.target.value }))}
+                          className="h-10 text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center justify-between mb-3">
+                        <h5 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                          Configure Module Permissions
+                        </h5>
+                        <span className="text-[11px] text-slate-400">
+                          Set the initial access scope for users created with this role
+                        </span>
+                      </div>
+
+                      {/* Permissions Matrix Table */}
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                        {PERMISSION_MODULES.map((module) => {
+                          const perm = (rolePermissionsDraft[module.key] || (module.key === 'users' ? rolePermissionsDraft['userManagement'] : undefined) || { access: false, permission: 'read' }) as Record<string, unknown>;
+                          const currentLevel = !perm.access ? 'off' : perm.permission === 'write' ? 'full' : 'view';
+
+                          return (
+                            <div key={module.key} className="p-3 bg-white dark:bg-slate-900 transition-colors">
+                              <div className="flex items-center justify-between gap-4">
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                                    <span>{module.label}</span>
+                                    {currentLevel !== 'off' && (
+                                      <span
+                                        className={`text-[10px] px-1.5 py-0.2 rounded font-bold uppercase ${
+                                          currentLevel === 'full'
+                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                            : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                                        }`}
+                                      >
+                                        {currentLevel === 'full' ? 'Full Access' : 'Read Only'}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                    {module.description}
+                                  </div>
+                                </div>
+                                <div className="flex items-center rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-50 dark:bg-slate-800 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDraftPermChange(module.key, 'off')}
+                                    className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
+                                      currentLevel === 'off'
+                                        ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 shadow-xs'
+                                        : 'text-slate-400 hover:text-slate-600'
+                                    }`}
+                                  >
+                                    Off
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDraftPermChange(module.key, 'view')}
+                                    className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
+                                      currentLevel === 'view'
+                                        ? 'bg-blue-600 text-white shadow-xs'
+                                        : 'text-slate-400 hover:text-blue-600'
+                                    }`}
+                                  >
+                                    View
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDraftPermChange(module.key, 'full')}
+                                    className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all ${
+                                      currentLevel === 'full'
+                                        ? 'bg-emerald-600 text-white shadow-xs'
+                                        : 'text-slate-400 hover:text-emerald-600'
+                                    }`}
+                                  >
+                                    Full
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Expandable sub-options for Joining module */}
+                              {module.key === 'joining' && currentLevel !== 'off' && (
+                                <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                                  {[
+                                    { k: 'pageAdmissions', l: 'Admissions List Tab' },
+                                    { k: 'pageJoiningPipeline', l: 'Joining Pipeline Tab' },
+                                    { k: 'pageConfirmedLeads', l: 'Confirmed Leads Tab' },
+                                    { k: 'pageFeeRequests', l: 'Fee Requests Page' },
+                                    { k: 'editAdmission', l: 'Edit Admission Details' },
+                                    { k: 'editReference', l: 'Edit Admission Reference' },
+                                    { k: 'approveFeeRequest', l: 'Approve Fee Requests' },
+                                    { k: 'activateAdmission', l: 'Reactivate Admissions' },
+                                  ].map((sub) => (
+                                    <label key={sub.k} className="flex items-center gap-2 cursor-pointer text-slate-600 dark:text-slate-300">
+                                      <input
+                                        type="checkbox"
+                                        checked={Boolean(rolePermissionsDraft.joining?.[sub.k])}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          setRolePermissionsDraft((prev) => ({
+                                            ...prev,
+                                            joining: {
+                                              ...(prev.joining || { access: true, permission: 'read' }),
+                                              [sub.k]: checked,
+                                            },
+                                          }));
+                                        }}
+                                        className="rounded border-slate-300 text-[#0ea5e9] focus:ring-[#0ea5e9]"
+                                      />
+                                      <span>{sub.l}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 px-6 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2 bg-slate-50/50 dark:bg-slate-800/30">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setIsCreatingRole(false);
+                        if (configuredRoles.length > 0) {
+                          setSelectedRoleForConfig(configuredRoles[0]);
+                          setRolePermissionsDraft(configuredRoles[0].permissions || {});
+                        }
+                      }}
+                      className="text-xs"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      onClick={handleCreateNewRole}
+                      disabled={isSavingRole || !newRoleForm.name.trim()}
+                      className="bg-[#0ea5e9] hover:bg-[#0284c7] text-white text-xs font-bold px-4"
+                    >
+                      {isSavingRole ? 'Creating Role…' : 'Create Role'}
+                    </Button>
+                  </div>
+                </div>
+              ) : (activeRole || selectedRoleForConfig) ? (
+                /* Mode B: Configure Selected Role */
+                (() => {
+                  const currentRole = activeRole || selectedRoleForConfig!;
+                  const liveCount = getRoleStaffCount(currentRole.name, currentRole.userCount || 0);
+                  return (
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/20 flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2.5">
+                            <span
+                              className="w-3.5 h-3.5 rounded-full shrink-0 shadow-xs"
+                              style={{ backgroundColor: currentRole.color || '#0ea5e9' }}
+                            />
+                            <h4 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                              {currentRole.name}
+                            </h4>
+                            <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                              {currentRole.name === 'Super Admin' || currentRole.id === 'super-admin'
+                                ? 'Root Admin'
+                                : currentRole.isSystem
+                                ? 'System Role'
+                                : 'Custom Role'}
+                            </span>
+                            <span className="text-[11px] px-2 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                              {liveCount} staff members
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            {currentRole.description || 'Manage module permissions and access capabilities for this role.'}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {currentRole.name !== 'Super Admin' && currentRole.id !== 'super-admin' && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => initiateDeleteRole(currentRole)}
+                              disabled={isSavingRole || isDeletingRole}
+                              className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/40 text-xs font-bold shadow-xs flex items-center gap-1.5"
+                            >
+                              <IconTrash className="w-3.5 h-3.5" />
+                              <span>Delete Role</span>
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            variant="primary"
+                            size="sm"
+                            onClick={handleSaveRoleConfig}
+                            disabled={isSavingRole || isDeletingRole}
+                            className="bg-[#0ea5e9] hover:bg-[#0284c7] text-white text-xs font-bold shadow-xs shrink-0"
+                          >
+                            {isSavingRole ? 'Saving Changes…' : 'Save Role Permissions'}
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h5 className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                            Permissions Matrix
+                          </h5>
+                          <span className="text-[11px] text-slate-400">
+                            Click Off, View, or Full to configure baseline permissions for this role
+                          </span>
+                        </div>
+
+                        <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+                          {PERMISSION_MODULES.map((module) => {
+                            const perm = (rolePermissionsDraft[module.key] || (module.key === 'users' ? rolePermissionsDraft['userManagement'] : undefined) || { access: false, permission: 'read' }) as Record<string, unknown>;
+                            const currentLevel = !perm.access ? 'off' : perm.permission === 'write' ? 'full' : 'view';
+
+                            return (
+                              <div key={module.key} className="p-3.5 bg-white dark:bg-slate-900 transition-colors">
+                                <div className="flex items-center justify-between gap-4">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                                      <span>{module.label}</span>
+                                      {currentLevel !== 'off' && (
+                                        <span
+                                          className={`text-[10px] px-1.5 py-0.2 rounded font-bold uppercase ${
+                                            currentLevel === 'full'
+                                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                              : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                                          }`}
+                                        >
+                                          {currentLevel === 'full' ? 'Full Access' : 'Read Only'}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                                      {module.description}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-50 dark:bg-slate-800 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDraftPermChange(module.key, 'off')}
+                                      className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                                        currentLevel === 'off'
+                                          ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 shadow-xs'
+                                          : 'text-slate-400 hover:text-slate-600'
+                                      }`}
+                                    >
+                                      Off
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDraftPermChange(module.key, 'view')}
+                                      className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                                        currentLevel === 'view'
+                                          ? 'bg-blue-600 text-white shadow-xs'
+                                          : 'text-slate-400 hover:text-blue-600'
+                                      }`}
+                                    >
+                                      View
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDraftPermChange(module.key, 'full')}
+                                      className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                                        currentLevel === 'full'
+                                          ? 'bg-emerald-600 text-white shadow-xs'
+                                          : 'text-slate-400 hover:text-emerald-600'
+                                      }`}
+                                    >
+                                      Full
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Expandable sub-options for Joining module */}
+                                {module.key === 'joining' && currentLevel !== 'off' && (
+                                  <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                                    {[
+                                      { k: 'pageAdmissions', l: 'Admissions List Tab' },
+                                      { k: 'pageJoiningPipeline', l: 'Joining Pipeline Tab' },
+                                      { k: 'pageConfirmedLeads', l: 'Confirmed Leads Tab' },
+                                      { k: 'pageFeeRequests', l: 'Fee Requests Page' },
+                                      { k: 'editAdmission', l: 'Edit Admission Details' },
+                                      { k: 'editReference', l: 'Edit Admission Reference' },
+                                      { k: 'approveFeeRequest', l: 'Approve Fee Requests' },
+                                      { k: 'activateAdmission', l: 'Reactivate Admissions' },
+                                    ].map((sub) => (
+                                      <label key={sub.k} className="flex items-center gap-2 cursor-pointer text-slate-600 dark:text-slate-300">
+                                        <input
+                                          type="checkbox"
+                                          checked={Boolean(rolePermissionsDraft.joining?.[sub.k])}
+                                          onChange={(e) => {
+                                            const checked = e.target.checked;
+                                            setRolePermissionsDraft((prev) => ({
+                                              ...prev,
+                                              joining: {
+                                                ...(prev.joining || { access: true, permission: 'read' }),
+                                                [sub.k]: checked,
+                                              },
+                                            }));
+                                          }}
+                                          className="rounded border-slate-300 text-[#0ea5e9] focus:ring-[#0ea5e9]"
+                                        />
+                                        <span>{sub.l}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="p-4 px-6 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30">
+                        <div>
+                          {currentRole.name !== 'Super Admin' && currentRole.id !== 'super-admin' && (
+                            <button
+                              type="button"
+                              onClick={() => initiateDeleteRole(currentRole)}
+                              disabled={isDeletingRole}
+                              className="text-xs text-red-600 hover:text-red-700 font-semibold flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                            >
+                              <IconTrash className="w-3.5 h-3.5" />
+                              <span>Delete Role</span>
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setShowRoleConfigModal(false)}
+                            className="text-xs"
+                          >
+                            Close
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="primary"
+                            onClick={handleSaveRoleConfig}
+                            disabled={isSavingRole}
+                            className="bg-[#0ea5e9] hover:bg-[#0284c7] text-white text-xs font-bold px-4"
+                          >
+                            {isSavingRole ? 'Saving…' : 'Save Role Permissions'}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-xs text-slate-400">
+                  Select a role from the left to configure permissions.
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Direct Delete Role (0 users assigned) */}
+      <Dialog open={showDirectDeleteModal} onOpenChange={setShowDirectDeleteModal}>
+        <DialogContent className="max-w-md p-0 overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl">
+          <DialogHeader className="p-6 pb-4 border-b border-slate-100 dark:border-slate-800 flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
+              <IconTrash className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-base font-bold text-slate-900 dark:text-slate-100">
+                Delete Role
+              </DialogTitle>
+              <DialogDescription className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Are you sure you want to delete this custom role?
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+
+          <div className="p-6 space-y-4">
+            <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 flex items-center gap-3">
+              <span
+                className="w-3.5 h-3.5 rounded-full shrink-0 shadow-xs"
+                style={{ backgroundColor: roleToDelete?.color || '#0ea5e9' }}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  {roleToDelete?.name}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                  {roleToDelete?.description || 'Custom role with 0 assigned staff members.'}
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              This action cannot be undone. All configured permission baselines for this role will be permanently removed.
+            </p>
+          </div>
+
+          <div className="p-4 px-6 bg-slate-50/70 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2.5">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowDirectDeleteModal(false);
+                setRoleToDelete(null);
+              }}
+              disabled={isDeletingRole}
+              className="text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={handleConfirmDirectDelete}
+              disabled={isDeletingRole}
+              className="text-xs font-bold bg-red-600 hover:bg-red-700 text-white"
+            >
+              {isDeletingRole ? 'Deleting…' : 'Delete Role'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Transfer Staff & Delete Role (users are assigned) */}
+      <Dialog open={showTransferDeleteModal} onOpenChange={setShowTransferDeleteModal}>
+        <DialogContent className="max-w-lg p-0 overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl">
+          <DialogHeader className="p-6 pb-4 border-b border-slate-100 dark:border-slate-800 flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-base font-bold text-slate-900 dark:text-slate-100">
+                Transfer Staff & Delete Role
+              </DialogTitle>
+              <DialogDescription className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                This role is currently assigned to users. Reassign them to proceed with deletion.
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+
+          <div className="p-6 space-y-4">
+            <div className="p-4 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/20 text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
+              <span className="font-bold">{roleToDelete ? getRoleStaffCount(roleToDelete.name, roleToDelete.userCount || 0) : 0} staff member(s)</span> are currently assigned to <span className="font-bold">&quot;{roleToDelete?.name}&quot;</span>. Before this role can be deleted, you must choose a new role to transfer them to.
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                Transfer All Users To Role *
+              </label>
+              <select
+                value={transferTargetRole}
+                onChange={(e) => setTransferTargetRole(e.target.value)}
+                className="w-full rounded-xl border-2 border-gray-200 bg-white/90 px-3.5 py-2.5 text-xs font-medium text-slate-700 transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              >
+                {configuredRoles
+                  .filter((r) => r.id !== roleToDelete?.id && r.name !== roleToDelete?.name)
+                  .map((r) => (
+                    <option key={r.id || r.name} value={r.name}>
+                      {r.name} {r.name === 'Super Admin' ? '(Root Admin)' : r.isSystem ? '(System Role)' : '(Custom Role)'}
+                    </option>
+                  ))}
+              </select>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-0.5">
+                Transferred users will automatically inherit the baseline permissions of the selected replacement role.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-4 px-6 bg-slate-50/70 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2.5">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowTransferDeleteModal(false);
+                setRoleToDelete(null);
+              }}
+              disabled={isDeletingRole}
+              className="text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={handleConfirmTransferDelete}
+              disabled={isDeletingRole || !transferTargetRole}
+              className="text-xs font-bold bg-red-600 hover:bg-red-700 text-white flex items-center gap-1.5"
+            >
+              <IconTrash className="w-3.5 h-3.5" />
+              <span>{isDeletingRole ? 'Transferring & Deleting…' : `Transfer ${roleToDelete ? getRoleStaffCount(roleToDelete.name, roleToDelete.userCount || 0) : 0} Users & Delete`}</span>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
 
 // Manager Team Card Component
 const ManagerTeamCard = ({ manager }: { manager: User }) => {
-  const { data: teamData, isLoading: isLoadingTeam } = useQuery({
+  const { isLoading: isLoadingTeam } = useQuery({
     queryKey: ['manager-team', manager._id],
     queryFn: async () => {
       // We need to fetch team data - but managerAPI requires manager authentication

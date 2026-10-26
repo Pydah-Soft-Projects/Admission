@@ -37,7 +37,7 @@ import hostelRoutes from './routes/hostel.routes.js';
 import feeRequestRoutes from './routes/feeRequest.routes.js';
 import printProxyRoutes from './routes/printProxy.routes.js';
 
-// Load environment variables
+// Load environment variables (reloaded)
 dotenv.config();
 
 // Connect to databases

@@ -16,10 +16,24 @@ export default function Home() {
     const checkAuth = () => {
       const user = auth.getUser();
       if (user) {
-        if (user.roleName === 'Super Admin' || user.roleName === 'Sub Super Admin') {
-          router.replace('/superadmin/dashboard');
-        } else if (user.roleName === 'Data Entry User') {
+        const hasAdminAccess = () => {
+          if (user.roleName === 'Super Admin' || user.roleName === 'Sub Super Admin') return true;
+          if (user.permissions && typeof user.permissions === 'object') {
+            return Object.entries(user.permissions).some(
+              ([k, v]) =>
+                k !== 'allowedSources' &&
+                v &&
+                typeof v === 'object' &&
+                (v as { access?: boolean }).access === true
+            );
+          }
+          return false;
+        };
+
+        if (user.roleName === 'Data Entry User') {
           router.replace('/superadmin/leads/individual');
+        } else if (hasAdminAccess()) {
+          router.replace('/superadmin/dashboard');
         } else if (user.isManager) {
           router.replace('/manager/dashboard');
         } else {
