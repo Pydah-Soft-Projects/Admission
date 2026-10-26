@@ -2469,8 +2469,8 @@ export const saveJoiningDraft = async (req, res) => {
               lead?.fatherName || '',
               lead?.fatherPhone || '',
               lead?.motherName || '',
-              safePayload?.studentInfo?.isScholarApplicable !== undefined
-                ? (safePayload.studentInfo.isScholarApplicable ? 1 : 0)
+              payload?.studentInfo?.isScholarApplicable !== undefined
+                ? (payload.studentInfo.isScholarApplicable ? 1 : 0)
                 : null,
               req.user.id,
               req.user.id,
@@ -2769,12 +2769,12 @@ export const saveJoiningDraft = async (req, res) => {
         admissionPhase: phase,
       };
     }
-    if (safePayload.studentInfo?.isScholarApplicable !== undefined) {
+    if (payload.studentInfo?.isScholarApplicable !== undefined) {
       finalPayload.leadData = {
         ...(finalPayload.leadData && typeof finalPayload.leadData === 'object'
           ? finalPayload.leadData
           : {}),
-        isScholarApplicable: safePayload.studentInfo.isScholarApplicable,
+        isScholarApplicable: payload.studentInfo.isScholarApplicable,
       };
     }
     // Self-registration leads keep their source even when a reference is attached.
