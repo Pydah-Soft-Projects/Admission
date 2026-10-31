@@ -267,13 +267,13 @@ export function JoiningImageCropModal({
       ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
       ctx.restore();
 
-      // Verify Head & Shoulder guidelines before accepting photo
-      const check = await verifyPortraitGuidelines(canvas);
+      // Verify guidelines with lenient: true so user is never blocked from saving cropped photo
+      const check = await verifyPortraitGuidelines(canvas, undefined, { lenient: true });
       if (!check.isValid) {
         setIsValidGuideline(false);
         setErr(check.reason);
         setProcessing(false);
-        return; // DO NOT accept click if guidelines are not matched!
+        return;
       }
 
       setIsValidGuideline(true);

@@ -408,7 +408,7 @@ export function JoiningCameraCaptureButton({
     const checkFrame = async (timestamp: number) => {
       if (!active) return;
 
-      if (!isChecking && !processingCapture && !isAutoCapturing && timestamp - lastCheckTime >= 80) {
+      if (!isChecking && !processingCapture && !isAutoCapturing && timestamp - lastCheckTime >= 300) {
         lastCheckTime = timestamp;
         const video = videoRef.current;
         if (video && !video.paused && !video.ended && video.videoWidth >= 2 && video.videoHeight >= 2) {
@@ -435,7 +435,7 @@ export function JoiningCameraCaptureButton({
                   const now = Date.now();
                   if (matchStartTime === null) {
                     matchStartTime = now;
-                  } else if (now - matchStartTime >= 350 && !isAutoCapturing && confirmCaptureRef.current) {
+                  } else if (now - matchStartTime >= 250 && !isAutoCapturing && confirmCaptureRef.current) {
                     isAutoCapturing = true;
                     setErr('Perfect — Capturing...');
                     void confirmCaptureRef.current();
@@ -494,20 +494,17 @@ export function JoiningCameraCaptureButton({
 
       ctx.drawImage(video, sx, sy, side, side, 0, 0, side, side);
 
-      // ALWAYS verify exact current frame on capture (NO STALE CACHING)
-      const check = await verifyPortraitGuidelines(canvas);
-
-      if (!check.isValid) {
-        setIsValidGuideline(false);
-        setErr(check.reason);
-        setProcessingCapture(false);
-        return; // Reject photo instantly if current frame does not match guidelines!
-      }
+      // Fast check with lenient: true so user is never blocked on capture
+      const check = await verifyPortraitGuidelines(canvas, undefined, { lenient: true });
 
       setIsValidGuideline(true);
       let outputCanvas = canvas;
       if (portraitBackground !== 'none') {
-        outputCanvas = await processPortraitBackground(canvas, portraitBackground, false, check.segmentations);
+        try {
+          outputCanvas = await processPortraitBackground(canvas, portraitBackground, false, check.segmentations);
+        } catch {
+          outputCanvas = canvas;
+        }
       }
       const file = await canvasToJpegFile(outputCanvas);
       if (!file) {

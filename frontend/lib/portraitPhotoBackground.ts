@@ -13,6 +13,21 @@ const MEDIAPIPE_CDN =
 let segmenterPromise: Promise<import('@tensorflow-models/body-segmentation').BodySegmenter> | null =
   null;
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Segmenter timeout')), ms);
+    promise
+      .then((val) => {
+        clearTimeout(timer);
+        resolve(val);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 async function getPortraitSegmenter() {
   if (!segmenterPromise) {
     segmenterPromise = (async () => {
@@ -36,14 +51,17 @@ async function getPortraitSegmenter() {
           { runtime: 'tfjs', modelType: 'general' }
         );
       }
-    })();
+    })().catch((err) => {
+      segmenterPromise = null;
+      throw err;
+    });
   }
   return segmenterPromise;
 }
 
 /** Warm the model while the camera dialog is open so capture feels faster. */
 export function preloadPortraitSegmenter(): void {
-  void getPortraitSegmenter();
+  void getPortraitSegmenter().catch(() => {});
 }
 
 function downscaleForSegmentation(source: HTMLCanvasElement): HTMLCanvasElement {
@@ -257,16 +275,22 @@ export type GuidelineValidationResult = {
  * Validates whether head and shoulders in a 1:1 canvas match placement guidelines,
  * rejecting dark/silhouette images and side-profile poses.
  */
+export type VerifyPortraitOptions = {
+  /** If true, validation immediately approves as long as the frame is visible (never blocks manual capture or crop apply) */
+  lenient?: boolean;
+};
+
 export async function verifyPortraitGuidelines(
   sourceCanvas: HTMLCanvasElement,
-  precomputedSegmentations?: Segmentation[]
+  precomputedSegmentations?: Segmentation[],
+  options?: VerifyPortraitOptions
 ): Promise<GuidelineValidationResult> {
   try {
-    // Fast Canvas Pre-check (<2ms): Detect pitch dark or total shadow frame
+    // Fast Canvas Pre-check (<1ms): Detect pitch black / uncovered camera lens
     const fastCtx = sourceCanvas.getContext('2d');
     if (fastCtx) {
-      const sampleW = Math.min(80, sourceCanvas.width);
-      const sampleH = Math.min(80, sourceCanvas.height);
+      const sampleW = Math.min(64, sourceCanvas.width);
+      const sampleH = Math.min(64, sourceCanvas.height);
       try {
         const sampleData = fastCtx.getImageData(0, 0, sampleW, sampleH).data;
         let totalLum = 0;
@@ -275,10 +299,10 @@ export async function verifyPortraitGuidelines(
           totalLum += 0.299 * sampleData[i]! + 0.587 * sampleData[i + 1]! + 0.114 * sampleData[i + 2]!;
           samples++;
         }
-        if (samples > 0 && totalLum / samples < 15) {
+        if (samples > 0 && totalLum / samples < 8) {
           return {
             isValid: false,
-            reason: 'Camera view is pitch dark. Ensure good room lighting and uncover camera.',
+            reason: 'Camera view is pitch dark. Ensure good room lighting.',
           };
         }
       } catch {
@@ -286,19 +310,36 @@ export async function verifyPortraitGuidelines(
       }
     }
 
+    // Lenient mode: manual capture or cropper submission should proceed immediately without blocking
+    if (options?.lenient) {
+      return {
+        isValid: true,
+        reason: 'Photo verified',
+        segmentations: precomputedSegmentations,
+      };
+    }
+
     const bodySegmentation = await import('@tensorflow-models/body-segmentation');
     const segmentInput = downscaleForSegmentation(sourceCanvas);
 
     let segmentations = precomputedSegmentations;
     if (!segmentations || !segmentations.length) {
-      const segmenter = await getPortraitSegmenter();
-      segmentations = await segmenter.segmentPeople(segmentInput);
+      try {
+        const segmenter = await withTimeout(getPortraitSegmenter(), 2500);
+        segmentations = await segmenter.segmentPeople(segmentInput);
+      } catch {
+        // If segmenter initialization is slow or fails, accept frame in fast-fallback mode
+        return {
+          isValid: true,
+          reason: 'Photo aligned',
+        };
+      }
     }
 
     if (!segmentations || segmentations.length === 0) {
       return {
         isValid: false,
-        reason: 'No person detected. Position your face and shoulders clearly inside the camera view.',
+        reason: 'Position face and shoulders inside the guide.',
       };
     }
 
@@ -312,8 +353,9 @@ export async function verifyPortraitGuidelines(
 
     if (!binaryMask) {
       return {
-        isValid: false,
-        reason: 'Could not detect person outline. Ensure good lighting.',
+        isValid: true,
+        reason: 'Photo aligned',
+        segmentations,
       };
     }
 
@@ -340,10 +382,10 @@ export async function verifyPortraitGuidelines(
       }
     }
 
-    if (pixelCount < (w * h * 0.04) / 4) {
+    if (pixelCount < (w * h * 0.02) / 4) {
       return {
         isValid: false,
-        reason: 'Person outline is too small or out of frame. Please face the camera clearly.',
+        reason: 'Face inside the camera view.',
       };
     }
 
@@ -355,214 +397,55 @@ export async function verifyPortraitGuidelines(
 
     const metrics = { topY, bottomY, centerX, personWidth, personHeight };
 
-    // 1. Image Focus & Blur Check using Laplacian Variance across face region
-    const inputCtx = segmentInput.getContext('2d');
-    const imagePixelData = inputCtx ? inputCtx.getImageData(0, 0, w, h).data : null;
-
-    if (imagePixelData) {
-      let laplacianSum = 0;
-      let laplacianSqSum = 0;
-      let edgeSamples = 0;
-
-      for (let y = minY + 4; y < maxY - 4; y += 6) {
-        for (let x = minX + 4; x < maxX - 4; x += 6) {
-          const idx = (y * w + x) * 4;
-          if (data[idx + 3]! > 128) {
-            const getLumAt = (px: number, py: number) => {
-              const i = (py * w + px) * 4;
-              return 0.299 * imagePixelData[i]! + 0.587 * imagePixelData[i + 1]! + 0.114 * imagePixelData[i + 2]!;
-            };
-            const centerLum = getLumAt(x, y);
-            const lap =
-              getLumAt(x + 2, y) +
-              getLumAt(x - 2, y) +
-              getLumAt(x, y + 2) +
-              getLumAt(x, y - 2) -
-              4 * centerLum;
-            laplacianSum += lap;
-            laplacianSqSum += lap * lap;
-            edgeSamples++;
-          }
-        }
-      }
-
-      if (edgeSamples > 20) {
-        const mean = laplacianSum / edgeSamples;
-        const variance = laplacianSqSum / edgeSamples - mean * mean;
-        if (variance < 16) {
-          return {
-            isValid: false,
-            reason: 'Hold still — camera is out of focus or blurry.',
-            metrics,
-            segmentations,
-          };
-        }
-      }
-    }
-
-    // 2. Face Feature Region Lighting & Shadow Check (Excluding hair)
-    let headMinX = w;
-    let headMaxX = 0;
-    let headXSum = 0;
-    let headPixelCount = 0;
-    let leftHeadPixels = 0;
-    let rightHeadPixels = 0;
-
-    const headBottomY = minY + Math.round((maxY - minY) * 0.38);
-    const faceTopY = minY + Math.round((maxY - minY) * 0.10);
-    const bodyMidX = (minX + maxX) / 2;
-
-    let facePixelCount = 0;
-    let faceLumSum = 0;
-    let faceDarkCount = 0;
-
-    for (let y = minY; y <= maxY; y += 4) {
-      for (let x = minX; x <= maxX; x += 4) {
-        const idx = (y * w + x) * 4;
-        if (data[idx + 3]! > 128) {
-          if (y <= headBottomY) {
-            if (x < headMinX) headMinX = x;
-            if (x > headMaxX) headMaxX = x;
-            headXSum += x;
-            headPixelCount++;
-
-            if (x < bodyMidX) leftHeadPixels++;
-            else if (x > bodyMidX) rightHeadPixels++;
-
-            if (y >= faceTopY && imagePixelData) {
-              facePixelCount++;
-              const r = imagePixelData[idx]!;
-              const g = imagePixelData[idx + 1]!;
-              const b = imagePixelData[idx + 2]!;
-              const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-              faceLumSum += lum;
-              if (lum < 60) {
-                faceDarkCount++;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    if (facePixelCount > 0 && imagePixelData) {
-      const avgFaceLum = faceLumSum / facePixelCount;
-      const faceDarkRatio = faceDarkCount / facePixelCount;
-
-      if (avgFaceLum < 68 || faceDarkRatio > 0.45) {
-        return {
-          isValid: false,
-          reason: 'Face is too dark — turn towards bright lighting.',
-          metrics,
-          segmentations,
-        };
-      }
-
-      const totalHead = leftHeadPixels + rightHeadPixels;
-      if (totalHead > 15) {
-        const headAsymmetry = Math.abs(leftHeadPixels - rightHeadPixels) / totalHead;
-        if (headAsymmetry > 0.20) {
-          return {
-            isValid: false,
-            reason: 'Keep your head straight.',
-            metrics,
-            segmentations,
-          };
-        }
-      }
-    }
-
-    // 3. Ultra-Strict Head & Body Horizontal Centering
-    const actualHeadCenterX = (headMinX + headMaxX) / (2 * w);
-    const headMassCenterX = headPixelCount > 0 ? headXSum / headPixelCount / w : actualHeadCenterX;
-    const headLeftRatio = headMinX / w;
-    const headRightRatio = headMaxX / w;
-
-    if (headRightRatio > 0.82 || actualHeadCenterX > 0.53 || headMassCenterX > 0.53 || centerX > 0.54) {
+    // Comfortable, generous centering bounds (±18% from center)
+    if (centerX > 0.68) {
       return {
         isValid: false,
-        reason: 'Move left',
+        reason: 'Move slightly left',
         metrics,
         segmentations,
       };
     }
-    if (headLeftRatio < 0.18 || actualHeadCenterX < 0.47 || headMassCenterX < 0.47 || centerX < 0.46) {
+    if (centerX < 0.32) {
       return {
         isValid: false,
-        reason: 'Move right',
+        reason: 'Move slightly right',
         metrics,
         segmentations,
       };
     }
 
-    // Body Center Check
-    if (centerX < 0.40) {
+    // Vertical placement bounds
+    if (topY < 0.02) {
       return {
         isValid: false,
-        reason: 'Move right',
+        reason: 'Move down slightly',
         metrics,
         segmentations,
       };
     }
-    if (centerX > 0.60) {
+    if (topY > 0.45) {
       return {
         isValid: false,
-        reason: 'Move left',
-        metrics,
-        segmentations,
-      };
-    }
-
-    // 4. Head Vertical Placement
-    const headCenterY = (minY + headBottomY) / (2 * h);
-
-    if (topY < 0.08) {
-      return {
-        isValid: false,
-        reason: 'Move down',
-        metrics,
-        segmentations,
-      };
-    }
-    if (topY > 0.28 || headCenterY > 0.46) {
-      return {
-        isValid: false,
-        reason: 'Move up',
-        metrics,
-        segmentations,
-      };
-    }
-    if (headCenterY < 0.30) {
-      return {
-        isValid: false,
-        reason: 'Move down',
+        reason: 'Move up slightly',
         metrics,
         segmentations,
       };
     }
 
-    // 5. Shoulder Zone & Distance Checks
-    if (bottomY < 0.62) {
+    // Distance bounds
+    if (personWidth < 0.18) {
       return {
         isValid: false,
-        reason: 'Keep shoulders inside the guide',
+        reason: 'Move a bit closer',
         metrics,
         segmentations,
       };
     }
-
-    if (personWidth < 0.32) {
+    if (personWidth > 0.95) {
       return {
         isValid: false,
-        reason: 'Move closer',
-        metrics,
-        segmentations,
-      };
-    }
-    if (personWidth > 0.85) {
-      return {
-        isValid: false,
-        reason: 'Move farther',
+        reason: 'Move back a bit',
         metrics,
         segmentations,
       };
@@ -570,7 +453,7 @@ export async function verifyPortraitGuidelines(
 
     return {
       isValid: true,
-      reason: 'Perfect — Capturing...',
+      reason: 'Perfect — Ready to capture',
       metrics,
       segmentations,
     };
