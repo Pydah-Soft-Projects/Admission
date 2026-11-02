@@ -1,7 +1,7 @@
 import { successResponse, errorResponse } from '../utils/response.util.js';
 import { buildUtmUrl } from '../services/urlShortener.service.js';
 import { getPool } from '../config-sql/database.js';
-import { hasElevatedAdminPrivileges } from '../utils/role.util.js';
+import { hasElevatedAdminPrivileges, hasModuleAccess } from '../utils/role.util.js';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 
@@ -65,8 +65,8 @@ const formatShortUrl = (urlData, clicks = []) => {
  */
 export const buildUtmTrackedUrl = async (req, res) => {
   try {
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
-      return errorResponse(res, 'Access denied. Super Admin only.', 403);
+    if (!hasModuleAccess(req.user, 'utmBuilder', 'write')) {
+      return errorResponse(res, 'Access denied. Super Admin or UTM Builder permission required.', 403);
     }
 
     const { baseUrl, utmSource, utmMedium, utmCampaign, utmTerm, utmContent, formId } = req.body;
@@ -153,8 +153,8 @@ export const buildUtmTrackedUrl = async (req, res) => {
  */
 export const shortenUtmUrl = async (req, res) => {
   try {
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
-      return errorResponse(res, 'Access denied. Super Admin only.', 403);
+    if (!hasModuleAccess(req.user, 'utmBuilder', 'write')) {
+      return errorResponse(res, 'Access denied. Super Admin or UTM Builder permission required.', 403);
     }
 
     const {
@@ -359,8 +359,8 @@ export const shortenUtmUrl = async (req, res) => {
  */
 export const getUrlAnalytics = async (req, res) => {
   try {
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
-      return errorResponse(res, 'Access denied. Super Admin only.', 403);
+    if (!hasModuleAccess(req.user, 'utmBuilder')) {
+      return errorResponse(res, 'Access denied. Super Admin or UTM Builder permission required.', 403);
     }
 
     const { urlId } = req.params;
@@ -613,8 +613,8 @@ export const redirectShortUrl = async (req, res) => {
  */
 export const getAllShortUrls = async (req, res) => {
   try {
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
-      return errorResponse(res, 'Access denied. Super Admin only.', 403);
+    if (!hasModuleAccess(req.user, 'utmBuilder')) {
+      return errorResponse(res, 'Access denied. Super Admin or UTM Builder permission required.', 403);
     }
 
     const page = parseInt(req.query.page, 10) || 1;

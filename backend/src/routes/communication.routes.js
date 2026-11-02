@@ -51,7 +51,7 @@ import {
   listBulkSmsJobs,
   resumeBulkSmsJob,
 } from '../controllers/smsBulkJob.controller.js';
-import { protect, isSuperAdmin } from '../middleware/auth.middleware.js';
+import { protect, requireModule } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -62,20 +62,20 @@ router.post('/whatsapp/webhook', receiveWhatsAppWebhook);
 router.use(protect);
 
 // Template management
-router.get('/templates/groups', isSuperAdmin, getTemplateGroups);
-router.post('/templates/groups', isSuperAdmin, createTemplateGroup);
-router.put('/templates/groups/:id', isSuperAdmin, updateTemplateGroup);
-router.delete('/templates/groups/:id', isSuperAdmin, deleteTemplateGroup);
+router.get('/templates/groups', requireModule('communications'), getTemplateGroups);
+router.post('/templates/groups', requireModule('communications', 'write'), createTemplateGroup);
+router.put('/templates/groups/:id', requireModule('communications', 'write'), updateTemplateGroup);
+router.delete('/templates/groups/:id', requireModule('communications', 'write'), deleteTemplateGroup);
 router.get('/templates/active', getActiveTemplates);
-router.get('/templates', isSuperAdmin, getTemplates);
-router.post('/templates', isSuperAdmin, createTemplate);
-router.put('/templates/:id', isSuperAdmin, updateTemplate);
-router.delete('/templates/:id', isSuperAdmin, deleteTemplate);
-router.delete('/templates/:id/hard', isSuperAdmin, hardDeleteTemplate);
-router.post('/templates/:id/test-sms', isSuperAdmin, sendTestTemplateSms);
-router.post('/whatsapp/sync-templates', isSuperAdmin, syncWhatsAppTemplates);
-router.post('/whatsapp/upload', isSuperAdmin, upload.single('file'), uploadWhatsAppMedia);
-router.get('/sms/account', isSuperAdmin, getBulkSmsAccountStatus);
+router.get('/templates', requireModule('communications'), getTemplates);
+router.post('/templates', requireModule('communications', 'write'), createTemplate);
+router.put('/templates/:id', requireModule('communications', 'write'), updateTemplate);
+router.delete('/templates/:id', requireModule('communications', 'write'), deleteTemplate);
+router.delete('/templates/:id/hard', requireModule('communications', 'write'), hardDeleteTemplate);
+router.post('/templates/:id/test-sms', requireModule('communications', 'write'), sendTestTemplateSms);
+router.post('/whatsapp/sync-templates', requireModule('communications', 'write'), syncWhatsAppTemplates);
+router.post('/whatsapp/upload', requireModule('communications', 'write'), upload.single('file'), uploadWhatsAppMedia);
+router.get('/sms/account', requireModule('communications'), getBulkSmsAccountStatus);
 
 // Lead communications
 router.post('/lead/:leadId/call', logCallCommunication);
@@ -86,11 +86,11 @@ router.post('/lead/:leadId/whatsapp', sendWhatsAppCommunication);
 router.get('/whatsapp/verify', verifyWhatsAppContact);
 
 // Bulk SMS & WhatsApp Jobs
-router.post('/sms-bulk/jobs', isSuperAdmin, createBulkSmsJob);
-router.post('/whatsapp-bulk/jobs', isSuperAdmin, createBulkSmsJob);
-router.get('/sms-bulk/jobs', isSuperAdmin, listBulkSmsJobs);
-router.get('/sms-bulk/jobs/:id', isSuperAdmin, getBulkSmsJob);
-router.post('/sms-bulk/jobs/:id/resume', resumeBulkSmsJob);
+router.post('/sms-bulk/jobs', requireModule('communications', 'write'), createBulkSmsJob);
+router.post('/whatsapp-bulk/jobs', requireModule('communications', 'write'), createBulkSmsJob);
+router.get('/sms-bulk/jobs', requireModule('communications'), listBulkSmsJobs);
+router.get('/sms-bulk/jobs/:id', requireModule('communications'), getBulkSmsJob);
+router.post('/sms-bulk/jobs/:id/resume', requireModule('communications', 'write'), resumeBulkSmsJob);
 
 // WhatsApp Chat APIs
 router.get('/whatsapp/conversations', getWhatsAppConversations);

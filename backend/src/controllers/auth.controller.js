@@ -8,6 +8,7 @@ import axios from 'axios';
 import { connectHRMS } from '../config-mongo/hrms.js';
 import { matchHrmsEmployeePassword } from '../utils/employeePasswordAuth.util.js';
 import { recordUserLoginLog } from '../utils/recordUserLoginLog.js';
+import { resolveEffectivePermissions } from '../utils/role.util.js';
 
 const escapeHtml = (value = '') =>
   String(value)
@@ -252,20 +253,8 @@ export const login = async (req, res) => {
 
     console.log('Password matched, generating token');
 
-    // Format user object to match expected structure (camelCase)
-    let permissions = {};
-    try {
-      if (userData.permissions) {
-        if (typeof userData.permissions === 'string') {
-          permissions = JSON.parse(userData.permissions);
-        } else if (typeof userData.permissions === 'object') {
-          permissions = userData.permissions;
-        }
-      }
-    } catch (parseError) {
-      console.error('Error parsing permissions JSON:', parseError);
-      permissions = {};
-    }
+    // Format user object to match expected structure (camelCase) with dynamic effective permissions
+    const permissions = await resolveEffectivePermissions(pool, userData.role_name, userData.permissions);
 
     const timeTrackingEnabled = userData.time_tracking_enabled === undefined
       ? true
@@ -336,20 +325,8 @@ export const getMe = async (req, res) => {
 
     const userData = users[0];
 
-    // Format user object to match expected structure (camelCase)
-    let permissions = {};
-    try {
-      if (userData.permissions) {
-        if (typeof userData.permissions === 'string') {
-          permissions = JSON.parse(userData.permissions);
-        } else if (typeof userData.permissions === 'object') {
-          permissions = userData.permissions;
-        }
-      }
-    } catch (parseError) {
-      console.error('Error parsing permissions JSON:', parseError);
-      permissions = {};
-    }
+    // Format user object to match expected structure (camelCase) with dynamic effective permissions
+    const permissions = await resolveEffectivePermissions(pool, userData.role_name, userData.permissions);
 
     const timeTrackingEnabled = userData.time_tracking_enabled === undefined
       ? true
@@ -490,20 +467,8 @@ export const createSSOSession = async (req, res) => {
 
     const userData = users[0];
 
-    // Format user object to match expected structure (camelCase)
-    let permissions = {};
-    try {
-      if (userData.permissions) {
-        if (typeof userData.permissions === 'string') {
-          permissions = JSON.parse(userData.permissions);
-        } else if (typeof userData.permissions === 'object') {
-          permissions = userData.permissions;
-        }
-      }
-    } catch (parseError) {
-      console.error('Error parsing permissions JSON:', parseError);
-      permissions = {};
-    }
+    // Format user object to match expected structure (camelCase) with dynamic effective permissions
+    const permissions = await resolveEffectivePermissions(pool, userData.role_name, userData.permissions);
 
     const timeTrackingEnabled = userData.time_tracking_enabled === undefined
       ? true

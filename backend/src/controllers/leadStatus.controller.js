@@ -1,6 +1,6 @@
 import { getPool } from '../config-sql/database.js';
 import { successResponse, errorResponse } from '../utils/response.util.js';
-import { hasElevatedAdminPrivileges } from '../utils/role.util.js';
+import { hasElevatedAdminPrivileges, hasModuleAccess } from '../utils/role.util.js';
 import { v4 as uuidv4 } from 'uuid';
 import { logStatusChangePerformance } from '../services/userPerformance.service.js';
 import { canonicalizeLeadStatus } from '../utils/leadChannelStatus.util.js';
@@ -53,7 +53,7 @@ export const updateLeadStatus = async (req, res) => {
       [leadId]
     );
     
-    if (!hasElevatedAdminPrivileges(req.user.roleName) && leadAccess[0].assigned_to !== userId) {
+    if (!hasElevatedAdminPrivileges(req.user) && !hasModuleAccess(req.user, 'leads', 'write') && leadAccess[0].assigned_to !== userId) {
       return errorResponse(res, 'Access denied', 403);
     }
 
@@ -75,9 +75,9 @@ export const updateLeadStatus = async (req, res) => {
     );
 
     // Track performance (increment handled leads and update status breakdown)
-    const [fullLead] = await pool.execute('SELECT academic_year, student_group FROM leads WHERE id = ?', [leadId]);
-    if (fullLead.length > 0) {
-      logStatusChangePerformance(userId, fullLead[0], canonicalStatus);
+    const [leadMeta] = await pool.execute('SELECT academic_year, student_group FROM leads WHERE id = ?', [leadId]);
+    if (leadMeta.length > 0) {
+      logStatusChangePerformance(userId, leadMeta[0], canonicalStatus);
     }
 
     // Fetch updated lead with status logs
@@ -160,7 +160,7 @@ export const getLeadStatusLogs = async (req, res) => {
       return errorResponse(res, 'Lead not found', 404);
     }
 
-    if (!hasElevatedAdminPrivileges(req.user.roleName) && leads[0].assigned_to !== userId) {
+    if (!hasElevatedAdminPrivileges(req.user) && !hasModuleAccess(req.user, 'leads') && leads[0].assigned_to !== userId) {
       return errorResponse(res, 'Access denied', 403);
     }
 

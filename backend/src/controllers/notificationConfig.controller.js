@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 // @access  Private (Super Admin only)
 export const getNotificationConfig = async (req, res) => {
   try {
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (!hasElevatedAdminPrivileges(req.user)) {
       return errorResponse(res, 'Access denied. Super Admin only.', 403);
     }
 
@@ -42,7 +42,7 @@ export const getNotificationConfig = async (req, res) => {
 // @access  Private (Super Admin only)
 export const updateNotificationConfig = async (req, res) => {
   try {
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (!hasElevatedAdminPrivileges(req.user)) {
       return errorResponse(res, 'Access denied. Super Admin only.', 403);
     }
 
@@ -145,7 +145,7 @@ export const updateNotificationConfig = async (req, res) => {
 // @access  Private (Super Admin only)
 export const testEmailChannels = async (req, res) => {
   try {
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (!hasElevatedAdminPrivileges(req.user)) {
       return errorResponse(res, 'Access denied. Super Admin only.', 403);
     }
 

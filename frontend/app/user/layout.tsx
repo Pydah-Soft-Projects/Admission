@@ -4,6 +4,7 @@ import { ReactNode, useEffect, useState, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { DashboardShell, DashboardNavItem, HomeIcon, ListIcon, ChartBarIcon, SettingsIcon, BookIcon, UserPlusIcon, CommunicationsIcon } from '@/components/layout/DashboardShell';
 import { auth } from '@/lib/auth';
+import { getFirstAccessiblePage } from '@/constants/permissions';
 import type { User } from '@/types';
 import { Loading } from '@/components/Loading';
 
@@ -21,8 +22,8 @@ const navItems: (DashboardNavItem & { isActivity?: boolean; roles?: string[] })[
 export default function UserLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname() || '';
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isReady, setIsReady] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(() => auth.getUser());
+  const [isReady, setIsReady] = useState(() => Boolean(auth.getUser()));
 
   const filteredNavItems = useMemo(() => {
     if (!currentUser) return navItems;
@@ -50,14 +51,36 @@ export default function UserLayout({ children }: { children: ReactNode }) {
       router.replace('/superadmin/dashboard');
       return;
     }
+
+    if (user.permissions && typeof user.permissions === 'object') {
+      const hasSuperAdminModule = Object.entries(user.permissions).some(
+        ([k, v]) =>
+          k !== 'allowedSources' &&
+          v &&
+          typeof v === 'object' &&
+          (v as { access?: boolean }).access === true
+      );
+      if (hasSuperAdminModule) {
+        const dest = getFirstAccessiblePage(user.permissions, user.roleName);
+        router.replace(dest);
+        return;
+      }
+    }
+
     if (user.roleName === 'Data Entry User') {
       router.replace('/superadmin/leads/individual');
       return;
     }
 
-    setCurrentUser(user);
-    setIsReady(true);
-  }, [router, pathname]);
+    queueMicrotask(() => {
+      if (!currentUser || currentUser._id !== user._id) {
+        setCurrentUser(user);
+      }
+      if (!isReady) {
+        setIsReady(true);
+      }
+    });
+  }, [router, pathname, currentUser, isReady]);
 
   // When time tracking is disabled, restrict access to Settings only
   useEffect(() => {

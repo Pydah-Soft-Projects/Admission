@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { getPool } from '../config-sql/database.js';
 import { successResponse, errorResponse } from '../utils/response.util.js';
 import { canonicalizeLeadStatus } from '../utils/leadChannelStatus.util.js';
-import { hasElevatedAdminPrivileges } from '../utils/role.util.js';
+import { hasElevatedAdminPrivileges, hasModuleAccess } from '../utils/role.util.js';
 import { buildLeadNameFuzzySql } from '../utils/leadNameSearch.util.js';
 
 /** Shared filters for manager leads list + export (prefix: "l." for JOIN, "" for count). */
@@ -999,8 +999,8 @@ export const notifyTeam = async (req, res) => {
 // @access  Private (Super Admin only)
 export const getTeamAnalyticsForAdmin = async (req, res) => {
   try {
-    // Only Super Admin can access this
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    // Super Admin or users with Reports module permission can access this
+    if (!hasElevatedAdminPrivileges(req.user) && !hasModuleAccess(req.user, 'reports')) {
       return errorResponse(res, 'Only Super Admin can access this endpoint', 403);
     }
 

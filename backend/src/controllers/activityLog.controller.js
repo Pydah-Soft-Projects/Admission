@@ -1,6 +1,6 @@
 import { getPool } from '../config-sql/database.js';
 import { successResponse, errorResponse } from '../utils/response.util.js';
-import { hasElevatedAdminPrivileges } from '../utils/role.util.js';
+import { hasElevatedAdminPrivileges, hasModuleAccess } from '../utils/role.util.js';
 import {
   resolveLeadStatus,
   resolveLeadStatusAfterChannelWrite,
@@ -54,7 +54,7 @@ export const addActivity = async (req, res) => {
     const lead = leads[0];
 
     // Check if user has access
-    const isSuperAdmin = hasElevatedAdminPrivileges(req.user.roleName);
+    const isSuperAdmin = hasElevatedAdminPrivileges(req.user) || hasModuleAccess(req.user, 'leads');
     const isAdmin = req.user.roleName === 'Admin';
     const isPro = req.user.roleName === 'PRO';
     const isStudentCounselor = req.user.roleName === 'Student Counselor';
@@ -309,7 +309,7 @@ export const getActivityLogs = async (req, res) => {
     const lead = leads[0];
 
     // Check if user has access
-    const isSuperAdmin = hasElevatedAdminPrivileges(req.user.roleName);
+    const isSuperAdmin = hasElevatedAdminPrivileges(req.user) || hasModuleAccess(req.user, 'leads');
     const isAdmin = req.user.roleName === 'Admin';
     const isProViewer = req.user.roleName === 'PRO';
     const isStudentCounselorViewer = req.user.roleName === 'Student Counselor';

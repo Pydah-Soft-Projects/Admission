@@ -150,7 +150,7 @@ export const getUserSubscriptions = async (req, res) => {
 export const sendTestNotificationsToAll = async (req, res) => {
   try {
     const { hasElevatedAdminPrivileges } = await import('../utils/role.util.js');
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (!hasElevatedAdminPrivileges(req.user)) {
       return errorResponse(res, 'Access denied. Super Admin only.', 403);
     }
 

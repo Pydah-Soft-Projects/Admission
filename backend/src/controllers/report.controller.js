@@ -1,7 +1,7 @@
 import { getPool } from '../config-sql/database.js';
 import { successResponse, errorResponse } from '../utils/response.util.js';
 import { findBestMatch } from '../utils/fuzzyMatch.util.js';
-import { hasElevatedAdminPrivileges } from '../utils/role.util.js';
+import { hasElevatedAdminPrivileges, hasModuleAccess } from '../utils/role.util.js';
 import { connectHRMS } from '../config-mongo/hrms.js';
 
 // @desc    Get daily call reports per user
@@ -9,7 +9,7 @@ import { connectHRMS } from '../config-mongo/hrms.js';
 // @access  Private (Super Admin only)
 export const getDailyCallReports = async (req, res) => {
   try {
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (!hasModuleAccess(req.user, 'reports')) {
       return errorResponse(res, 'Access denied', 403);
     }
 
@@ -325,7 +325,7 @@ export const getDailyCallReports = async (req, res) => {
 // @access  Private (Super Admin only)
 export const getConversionReports = async (req, res) => {
   try {
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (!hasModuleAccess(req.user, 'reports')) {
       return errorResponse(res, 'Access denied', 403);
     }
 
@@ -610,7 +610,7 @@ const norm = (s) => (s == null || s === '' ? '' : String(s).toLowerCase().trim()
 // @access  Private (Super Admin only)
 export const getLeadsAbstract = async (req, res) => {
   try {
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (!hasModuleAccess(req.user, 'reports')) {
       return errorResponse(res, 'Access denied', 403);
     }
 

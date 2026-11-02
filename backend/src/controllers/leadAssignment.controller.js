@@ -1,6 +1,6 @@
 import { getPool } from '../config-sql/database.js';
 import { successResponse, errorResponse } from '../utils/response.util.js';
-import { hasElevatedAdminPrivileges } from '../utils/role.util.js';
+import { hasElevatedAdminPrivileges, hasModuleAccess } from '../utils/role.util.js';
 import { notifyLeadAssignment } from '../services/notification.service.js';
 import { isPipelineNewLeadStatus, resolveLeadStatus } from '../utils/leadChannelStatus.util.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -1404,8 +1404,13 @@ export const getUserLeadAnalytics = async (req, res) => {
     const requestingUserId = req.user.id || req.user._id;
     const pool = getPool();
 
-    // Users can only view their own analytics, Super Admin can view any user's analytics
-    if (!hasElevatedAdminPrivileges(req.user.roleName) && userId !== requestingUserId) {
+    // Users can only view their own analytics, Super Admin / Report viewers can view any user's analytics
+    if (
+      !hasElevatedAdminPrivileges(req.user) &&
+      !hasModuleAccess(req.user, 'reports') &&
+      !hasModuleAccess(req.user, 'leads') &&
+      userId !== requestingUserId
+    ) {
       return errorResponse(res, 'Access denied', 403);
     }
 
@@ -1773,7 +1778,11 @@ export const getMyCallAnalytics = async (req, res) => {
 
 export const getOverviewAnalytics = async (req, res) => {
   try {
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (
+      !hasElevatedAdminPrivileges(req.user) &&
+      !hasModuleAccess(req.user, 'reports') &&
+      !hasModuleAccess(req.user, 'leads')
+    ) {
       return errorResponse(res, 'Access denied', 403);
     }
 
@@ -3250,8 +3259,12 @@ export const getUserAnalytics = async (req, res) => {
       visitStatus: visitStatusQuery,
     } = req.query;
 
-    // Allow Super Admin, Sub Super Admin, and Managers
-    const isAdmin = hasElevatedAdminPrivileges(req.user.roleName);
+    // Allow Super Admin, Sub Super Admin, users with reports/leads/communications permission, and Managers
+    const isAdmin =
+      hasElevatedAdminPrivileges(req.user) ||
+      hasModuleAccess(req.user, 'reports') ||
+      hasModuleAccess(req.user, 'leads') ||
+      hasModuleAccess(req.user, 'communications');
     const isManager = req.user.isManager === true;
     const pool = getPool();
     const currentUserId = req.user.id || req.user._id;
@@ -5409,7 +5422,7 @@ WHEN TRIM(u.role_name) = 'PRO' THEN
 /** Super Admin: drop in-memory GET /analytics/users cache (e.g. after bulk SQL on leads.call_status). */
 export const clearUserAnalyticsCacheHandler = async (req, res) => {
   try {
-    if (!hasElevatedAdminPrivileges(req.user.roleName)) {
+    if (!hasElevatedAdminPrivileges(req.user) && !hasModuleAccess(req.user, 'reports')) {
       return errorResponse(res, 'Access denied', 403);
     }
     const clearedEntries = clearUserAnalyticsCache();

@@ -4,7 +4,7 @@ import { successResponse, errorResponse } from '../utils/response.util.js';
 import whatsappService from '../services/whatsapp.service.js';
 import { ensureLeadAndNumbers } from '../services/communicationSmsDispatch.js';
 import { v4 as uuidv4 } from 'uuid';
-import { hasElevatedAdminPrivileges } from '../utils/role.util.js';
+import { hasElevatedAdminPrivileges, hasModuleAccess } from '../utils/role.util.js';
 
 /**
  * WhatsApp Communication Controller
@@ -468,7 +468,7 @@ export const getWhatsAppConversations = async (req, res) => {
     const params = [];
     
     // Filter for non-admin users
-    if (!hasElevatedAdminPrivileges(roleName) && roleName !== 'Admin') {
+    if (!hasElevatedAdminPrivileges(req.user) && !hasModuleAccess(req.user, 'communications') && roleName !== 'Admin') {
       query += `
         WHERE (
           l.assigned_to = ? 

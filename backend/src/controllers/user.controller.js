@@ -10,6 +10,7 @@ import {
   getRequestAuditMeta,
   recordUserAuditLog,
 } from '../utils/recordUserAuditLog.js';
+import { mergeEffectivePermissions, resolveEffectivePermissions } from '../utils/role.util.js';
 
 const VALID_ROLES = ['Super Admin', 'Sub Super Admin', 'Student Counselor', 'Data Entry User', 'PRO'];
 
@@ -523,6 +524,20 @@ const sanitizePermissions = (permissions = {}) => {
       }
       return;
     }
+    if (key === 'revokedPermissions') {
+      if (Array.isArray(value)) {
+        sanitized[key] = value.filter((v) => typeof v === 'string');
+      } else if (value && typeof value === 'object') {
+        sanitized[key] = Object.keys(value).filter((k) => value[k] === true || value[k] === 'true');
+      }
+      return;
+    }
+    if (key === 'extraPermissions') {
+      if (value && typeof value === 'object') {
+        sanitized[key] = sanitizePermissions(value);
+      }
+      return;
+    }
     if (!value || typeof value !== 'object') return;
     const access = Boolean(value.access);
     const permission = value.permission === 'write' ? 'write' : 'read';
@@ -606,6 +621,27 @@ export const getUsers = async (req, res) => {
 
     await hydrateUserRowsFromHrms(formattedUsers, 'getUsers');
 
+    // Merge baseline permissions from role_configurations into effective user permissions
+    try {
+      const [roleConfigs] = await pool.execute('SELECT id, name, permissions FROM role_configurations');
+      const roleMap = new Map();
+      (roleConfigs || []).forEach((rc) => {
+        if (rc.name) {
+          roleMap.set(String(rc.name).trim().toLowerCase(), rc.permissions);
+        }
+        if (rc.id) {
+          roleMap.set(String(rc.id).trim().toLowerCase(), rc.permissions);
+        }
+      });
+
+      formattedUsers.forEach((u) => {
+        const rKey = String(u.roleName || '').trim().toLowerCase();
+        u.permissions = mergeEffectivePermissions(roleMap.get(rKey), u.permissions, u.roleName);
+      });
+    } catch (roleMapErr) {
+      console.error('Failed to merge role configs in getUsers:', roleMapErr);
+    }
+
     // Resolve manager id to a small object so list/card views match detail modal lookups
     const userById = Object.fromEntries(formattedUsers.map((u) => [String(u._id), u]));
     formattedUsers.forEach((u) => {
@@ -635,7 +671,7 @@ export const getAssignableUsers = async (req, res) => {
       `SELECT id, hrms_id, emp_no, name, email, role_name, designation, is_active
        FROM users
        WHERE is_active = 1
-         AND role_name IN ('Sub Super Admin', 'Student Counselor', 'Data Entry User', 'PRO')
+         AND role_name != 'Super Admin'
        ORDER BY name ASC`
     );
 
@@ -698,6 +734,7 @@ export const getUser = async (req, res) => {
     }
 
     const user = formatUser(users[0]);
+    user.permissions = await resolveEffectivePermissions(pool, user.roleName, user.permissions);
 
     // If manager (not admin), check if the requested user is in their team
     if (isManager && !isAdmin) {
@@ -723,15 +760,27 @@ export const createUser = async (req, res) => {
   try {
     const { name, email, password, roleName, designation, permissions, mobileNumber, hrms_id, emp_no } = req.body;
 
-    if (!VALID_ROLES.includes(roleName)) {
-      return errorResponse(res, 'Invalid role. Must be one of: Super Admin, Sub Super Admin, Student Counselor, Data Entry User, PRO', 400);
+    const pool = getPool();
+
+    // Check if role is valid (default roles or dynamically configured roles)
+    let isRoleValid = VALID_ROLES.includes(roleName);
+    if (!isRoleValid && roleName) {
+      const [configuredRoles] = await pool.execute(
+        'SELECT name FROM role_configurations WHERE LOWER(name) = LOWER(?)',
+        [String(roleName).trim()]
+      );
+      if (configuredRoles.length > 0) {
+        isRoleValid = true;
+      }
+    }
+
+    if (!isRoleValid) {
+      return errorResponse(res, `Invalid role: ${roleName}`, 400);
     }
 
     if (roleName === 'Sub Super Admin' && (permissions && typeof permissions !== 'object')) {
       return errorResponse(res, 'Permissions must be provided as an object for sub super admins', 400);
     }
-
-    const pool = getPool();
 
     // Check if user exists (email only if provided)
     if (email && email.trim()) {
@@ -745,18 +794,24 @@ export const createUser = async (req, res) => {
       }
     }
 
-    if (mobileNumber) {
-      const [existingMobile] = await pool.execute(
-        'SELECT id FROM users WHERE mobile_number = ?',
-        [mobileNumber.trim()]
-      );
-
-      if (existingMobile.length > 0) {
-        return errorResponse(res, 'User with this mobile number already exists', 400);
+    let userPermissions = permissions;
+    if (!userPermissions || (typeof userPermissions === 'object' && Object.keys(userPermissions).length === 0)) {
+      try {
+        const [roleConfig] = await pool.execute(
+          'SELECT permissions FROM role_configurations WHERE LOWER(name) = LOWER(?)',
+          [String(roleName).trim()]
+        );
+        if (roleConfig.length > 0 && roleConfig[0].permissions) {
+          userPermissions = typeof roleConfig[0].permissions === 'string'
+            ? JSON.parse(roleConfig[0].permissions)
+            : roleConfig[0].permissions;
+        }
+      } catch (err) {
+        console.error('Error fetching role baseline permissions in createUser:', err);
       }
     }
 
-    const sanitizedPermissions = sanitizePermissions(permissions);
+    const sanitizedPermissions = sanitizePermissions(userPermissions);
 
     let finalHrmsId = hrms_id || null;
     let finalEmpNo = emp_no || null;
@@ -818,6 +873,7 @@ export const createUser = async (req, res) => {
     );
 
     const user = formatUser(users[0]);
+    user.permissions = await resolveEffectivePermissions(pool, user.roleName, user.permissions);
     const actorId = req.user?.id || req.user?._id || null;
     const actorName = req.user?.name || null;
     const { ipAddress, userAgent } = getRequestAuditMeta(req);
@@ -957,8 +1013,19 @@ export const updateUser = async (req, res) => {
     // Determine final roleName
     let finalRoleName = currentUser.role_name;
     if (roleName) {
-      if (!VALID_ROLES.includes(roleName)) {
-        return errorResponse(res, 'Invalid role. Must be one of: Super Admin, Sub Super Admin, Student Counselor, Data Entry User, PRO', 400);
+      let isRoleValid = VALID_ROLES.includes(roleName);
+      if (!isRoleValid) {
+        const [configuredRoles] = await pool.execute(
+          'SELECT name FROM role_configurations WHERE LOWER(name) = LOWER(?)',
+          [String(roleName).trim()]
+        );
+        if (configuredRoles.length > 0) {
+          isRoleValid = true;
+        }
+      }
+
+      if (!isRoleValid) {
+        return errorResponse(res, `Invalid role: ${roleName}`, 400);
       }
       if (roleName === 'Manager') {
         return errorResponse(res, 'Use isManager boolean field instead of setting roleName to Manager', 400);
@@ -1002,8 +1069,24 @@ export const updateUser = async (req, res) => {
     }
 
     // Handle designation and permissions based on role
-    if (permissions && typeof permissions === 'object') {
-      const sanitizedPerms = sanitizePermissions(permissions);
+    let userPermissions = permissions;
+    if (roleName && roleName !== currentUser.role_name && (!userPermissions || (typeof userPermissions === 'object' && Object.keys(userPermissions).length === 0))) {
+      try {
+        const [roleConfig] = await pool.execute(
+          'SELECT permissions FROM role_configurations WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))',
+          [String(roleName).trim()]
+        );
+        if (roleConfig.length > 0 && roleConfig[0].permissions) {
+          userPermissions = typeof roleConfig[0].permissions === 'string'
+            ? JSON.parse(roleConfig[0].permissions)
+            : roleConfig[0].permissions;
+        }
+      } catch (err) {
+        console.error('Error fetching role baseline permissions in updateUser:', err);
+      }
+    }
+    if (userPermissions && typeof userPermissions === 'object') {
+      const sanitizedPerms = sanitizePermissions(userPermissions);
       updateFields.push('permissions = ?');
       updateValues.push(JSON.stringify(sanitizedPerms));
     }
@@ -1103,6 +1186,7 @@ export const updateUser = async (req, res) => {
     );
 
     const user = formatUser(updatedUsers[0]);
+    user.permissions = await resolveEffectivePermissions(pool, user.roleName, user.permissions);
     const afterSnap = snapshotUserForAudit(updatedUsers[0]);
     const changes = diffUserAuditSnapshots(beforeSnap, afterSnap, { passwordChanged });
     if (Object.keys(changes).length > 0) {
@@ -1352,6 +1436,279 @@ export const deleteUser = async (req, res) => {
   } catch (error) {
     console.error('Delete user error:', error);
     return errorResponse(res, error.message || 'Failed to delete user', 500);
+  }
+};
+
+/**
+ * =========================================================================
+ * ROLE CONFIGURATION CONTROLLERS
+ * =========================================================================
+ */
+
+// @desc    Get all configured roles with permissions and staff counts
+// @route   GET /api/users/roles/config
+// @access  Private
+export const getRoleConfigurations = async (req, res) => {
+  try {
+    const pool = getPool();
+    const [roles] = await pool.execute(
+      'SELECT * FROM role_configurations ORDER BY is_system DESC, name ASC'
+    );
+    
+    // Count total and active users for each role
+    const [userCounts] = await pool.execute(
+      'SELECT TRIM(role_name) as role_name, COUNT(*) as count, SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_count FROM users WHERE role_name IS NOT NULL AND TRIM(role_name) != "" GROUP BY TRIM(role_name)'
+    );
+    const countMap = {};
+    userCounts.forEach((r) => {
+      const key = String(r.role_name || '').trim().toLowerCase();
+      countMap[key] = {
+        total: parseInt(r.count || 0, 10),
+        active: parseInt(r.active_count || 0, 10),
+      };
+    });
+
+    const formatted = roles.map((r) => {
+      const key = String(r.name || '').trim().toLowerCase();
+      return {
+        id: r.id,
+        name: r.name,
+        description: r.description || '',
+        color: r.color || '#0ea5e9',
+        isSystem: r.name === 'Super Admin' || r.id === 'super-admin',
+        permissions: typeof r.permissions === 'string' ? JSON.parse(r.permissions || '{}') : (r.permissions || {}),
+        userCount: countMap[key]?.total || 0,
+        activeUserCount: countMap[key]?.active || 0,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      };
+    });
+
+    return successResponse(res, formatted);
+  } catch (error) {
+    console.error('Error fetching role configurations:', error);
+    return errorResponse(res, 'Failed to fetch role configurations', 500);
+  }
+};
+
+// @desc    Create a new custom role configuration
+// @route   POST /api/users/roles/config
+// @access  Private (Super Admin)
+export const createRoleConfiguration = async (req, res) => {
+  try {
+    const { name, description, color, permissions } = req.body;
+    if (!name || !name.trim()) {
+      return errorResponse(res, 'Role name is required', 400);
+    }
+    const trimmedName = name.trim();
+    const pool = getPool();
+
+    // Check if role name already exists
+    const [existing] = await pool.execute(
+      'SELECT id FROM role_configurations WHERE LOWER(name) = LOWER(?)',
+      [trimmedName]
+    );
+    if (existing.length > 0) {
+      return errorResponse(res, 'A role with this name already exists', 400);
+    }
+
+    const id = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || uuidv4();
+    const roleColor = color || '#0ea5e9';
+    const permsJson = JSON.stringify(permissions || {});
+
+    await pool.execute(
+      'INSERT INTO role_configurations (id, name, description, color, permissions, is_system) VALUES (?, ?, ?, ?, ?, 0)',
+      [id, trimmedName, description || '', roleColor, permsJson]
+    );
+
+    return successResponse(
+      res,
+      {
+        id,
+        name: trimmedName,
+        description: description || '',
+        color: roleColor,
+        isSystem: false,
+        permissions: permissions || {},
+        userCount: 0,
+        activeUserCount: 0,
+      },
+      'Role created successfully',
+      201
+    );
+  } catch (error) {
+    console.error('Error creating role configuration:', error);
+    return errorResponse(res, error.message || 'Failed to create role', 500);
+  }
+};
+
+// @desc    Update an existing role configuration
+// @route   PUT /api/users/roles/config/:id
+// @access  Private (Super Admin)
+export const updateRoleConfiguration = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { description, color, permissions, name } = req.body;
+    const pool = getPool();
+
+    const [existing] = await pool.execute(
+      'SELECT * FROM role_configurations WHERE id = ?',
+      [id]
+    );
+    if (existing.length === 0) {
+      return errorResponse(res, 'Role configuration not found', 404);
+    }
+
+    const role = existing[0];
+    const isSuperAdminRole = role.name === 'Super Admin' || role.id === 'super-admin';
+    const updatedName = isSuperAdminRole ? role.name : (name?.trim() || role.name);
+    const updatedDesc = description !== undefined ? description : role.description;
+    const updatedColor = color !== undefined ? color : role.color;
+    const updatedPerms = permissions !== undefined ? JSON.stringify(permissions) : role.permissions;
+
+    await pool.execute(
+      'UPDATE role_configurations SET name = ?, description = ?, color = ?, permissions = ? WHERE id = ?',
+      [updatedName, updatedDesc, updatedColor, updatedPerms, id]
+    );
+
+    // If role name changed, update existing users with this role_name
+    if (!isSuperAdminRole && updatedName !== role.name) {
+      await pool.execute(
+        'UPDATE users SET role_name = ? WHERE LOWER(TRIM(role_name)) = LOWER(TRIM(?)) OR LOWER(TRIM(role_name)) = LOWER(TRIM(?))',
+        [updatedName, role.name, role.id]
+      );
+    }
+
+    // Propagate updated baseline permissions to users assigned to this role (preserving custom lead sources and individual extra permissions)
+    if (role.name !== 'Sub Super Admin' && updatedPerms) {
+      try {
+        const parsedNewRolePerms = typeof updatedPerms === 'string' ? JSON.parse(updatedPerms) : (updatedPerms || {});
+        const [roleUsers] = await pool.execute(
+          'SELECT id, permissions FROM users WHERE LOWER(TRIM(role_name)) = LOWER(TRIM(?)) OR LOWER(TRIM(role_name)) = LOWER(TRIM(?)) OR LOWER(TRIM(role_name)) = LOWER(TRIM(?))',
+          [updatedName, role.name, role.id]
+        );
+        for (const u of roleUsers) {
+          let userExistingPerms = {};
+          try {
+            userExistingPerms = typeof u.permissions === 'string' ? JSON.parse(u.permissions || '{}') : (u.permissions || {});
+          } catch {
+            userExistingPerms = {};
+          }
+          const mergedUserPerms = { ...parsedNewRolePerms };
+          if (Array.isArray(userExistingPerms.allowedSources)) {
+            mergedUserPerms.allowedSources = userExistingPerms.allowedSources;
+          }
+          if (Array.isArray(userExistingPerms.revokedPermissions)) {
+            mergedUserPerms.revokedPermissions = userExistingPerms.revokedPermissions;
+            userExistingPerms.revokedPermissions.forEach((rk) => {
+              delete mergedUserPerms[rk];
+              if (rk === 'users') delete mergedUserPerms['userManagement'];
+              if (rk === 'userManagement') delete mergedUserPerms['users'];
+            });
+          }
+          if (userExistingPerms.extraPermissions && typeof userExistingPerms.extraPermissions === 'object') {
+            mergedUserPerms.extraPermissions = userExistingPerms.extraPermissions;
+            Object.entries(userExistingPerms.extraPermissions).forEach(([k, v]) => {
+              if (v && typeof v === 'object' && v.access) {
+                mergedUserPerms[k] = v;
+              }
+            });
+          }
+          await pool.execute(
+            'UPDATE users SET permissions = ? WHERE id = ?',
+            [JSON.stringify(mergedUserPerms), u.id]
+          );
+        }
+      } catch (propagateErr) {
+        console.error('Failed to propagate permissions to users:', propagateErr);
+      }
+    }
+
+    return successResponse(
+      res,
+      {
+        id,
+        name: updatedName,
+        description: updatedDesc,
+        color: updatedColor,
+        isSystem: isSuperAdminRole,
+        permissions: typeof updatedPerms === 'string' ? JSON.parse(updatedPerms) : updatedPerms,
+      },
+      'Role updated successfully'
+    );
+  } catch (error) {
+    console.error('Error updating role configuration:', error);
+    return errorResponse(res, error.message || 'Failed to update role', 500);
+  }
+};
+
+// @desc    Delete a role configuration (with optional user transfer)
+// @route   DELETE /api/users/roles/config/:id
+// @access  Private (Super Admin)
+export const deleteRoleConfiguration = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pool = getPool();
+
+    const [existing] = await pool.execute(
+      'SELECT * FROM role_configurations WHERE id = ?',
+      [id]
+    );
+    if (existing.length === 0) {
+      return errorResponse(res, 'Role configuration not found', 404);
+    }
+    if (existing[0].name === 'Super Admin' || existing[0].id === 'super-admin') {
+      return errorResponse(res, 'Super Admin role cannot be deleted', 400);
+    }
+
+    const roleName = existing[0].name;
+    const [assignedUsers] = await pool.execute(
+      'SELECT COUNT(*) as count FROM users WHERE LOWER(TRIM(role_name)) = LOWER(TRIM(?))',
+      [roleName]
+    );
+    const userCount = parseInt(assignedUsers[0]?.count || 0, 10);
+    const transferToRole = req.body?.transferToRole || req.query?.transferToRole;
+
+    if (userCount > 0) {
+      if (!transferToRole) {
+        return res.status(400).json({
+          success: false,
+          requiresTransfer: true,
+          userCount,
+          message: `Cannot delete role '${roleName}' because ${userCount} user(s) are currently assigned to it. Please select a replacement role to transfer them to.`,
+        });
+      }
+
+      // Verify transferToRole exists in role_configurations
+      const [targetRoleRows] = await pool.execute(
+        'SELECT name, permissions FROM role_configurations WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))',
+        [String(transferToRole).trim()]
+      );
+      if (targetRoleRows.length === 0) {
+        return errorResponse(res, `Target transfer role '${transferToRole}' does not exist`, 400);
+      }
+
+      const targetRoleName = targetRoleRows[0].name;
+      const targetPermissions = targetRoleRows[0].permissions;
+
+      // Transfer all users assigned to this role to target role
+      await pool.execute(
+        'UPDATE users SET role_name = ?, permissions = ? WHERE LOWER(TRIM(role_name)) = LOWER(TRIM(?))',
+        [targetRoleName, targetPermissions, roleName]
+      );
+    }
+
+    await pool.execute('DELETE FROM role_configurations WHERE id = ?', [id]);
+    return successResponse(
+      res,
+      { transferredCount: userCount, transferToRole: transferToRole || null },
+      userCount > 0
+        ? `Role deleted and ${userCount} user(s) transferred to '${transferToRole}' successfully`
+        : 'Role deleted successfully'
+    );
+  } catch (error) {
+    console.error('Error deleting role configuration:', error);
+    return errorResponse(res, error.message || 'Failed to delete role', 500);
   }
 };
 
