@@ -39,24 +39,27 @@ export const Input: React.FC<InputProps> = ({
         <input
           id={inputId}
           className={cn(
-            'w-full rounded-lg border border-slate-200 bg-slate-50/50 text-slate-900',
+            'w-full rounded-lg border text-slate-900',
             compact ? 'px-3 py-2 text-xs' : 'px-4 py-3 rounded-xl',
             'placeholder:text-slate-400',
-            'focus:outline-none focus:bg-white focus:border-orange-500/50 focus:ring-4 focus:ring-orange-500/10',
+            'focus:outline-none focus:border-[var(--primary,#ea580c)] focus:ring-4 focus:ring-[var(--primary-light,#fff7ed)]',
             'transition-all duration-200',
-            'hover:bg-white hover:border-slate-300',
-            'dark:bg-slate-900/50 dark:border-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500',
-            'dark:focus:bg-slate-950 dark:focus:border-orange-500/50 dark:focus:ring-orange-900/20',
-            'dark:hover:bg-slate-900 dark:hover:border-slate-700',
+            'hover:border-[var(--primary,#ea580c)]/60',
+            'dark:text-slate-100 dark:placeholder:text-slate-500',
             error && 'border-red-300 text-red-900 focus:border-red-500 focus:ring-red-100 dark:border-red-800 dark:text-red-100 dark:focus:ring-red-900/20',
             icon && 'pl-11',
             rightElement && 'pr-11',
             className
           )}
+          style={{
+            backgroundColor: 'var(--surface, #ffffff)',
+            borderColor: 'var(--border-strong, #cbd5e1)',
+            color: 'var(--text-primary, #0f172a)',
+          }}
           {...props}
         />
         {icon && (
-          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-orange-500 dark:text-slate-500 dark:group-focus-within:text-orange-400">
+          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-[var(--primary,#ea580c)] dark:text-slate-500">
             {icon}
           </div>
         )}

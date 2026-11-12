@@ -21,15 +21,15 @@ export const Button: React.FC<ButtonProps> = ({
 
   const variants = {
     primary:
-      'text-white bg-[#ea580c] hover:bg-[#c2410c] focus:ring-[#fdba74] dark:bg-[#ea580c] dark:hover:bg-[#c2410c] dark:focus:ring-[#9a3412]',
+      'text-white bg-[var(--primary,#ea580c)] hover:bg-[var(--primary-hover,#c2410c)] focus:ring-[var(--primary-light,#fdba74)]',
     secondary: // Treated as "Alternative" in Flowbite
-      'text-gray-900 bg-white border border-gray-200 hover:bg-gray-100 hover:text-[#ea580c] focus:z-10 focus:ring-gray-100 dark:focus:ring-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700',
+      'text-[var(--text-primary,#111827)] bg-[var(--surface,#ffffff)] border border-[var(--border,#e5e7eb)] hover:bg-[var(--primary-light,#fff7ed)] hover:text-[var(--primary,#ea580c)] focus:z-10 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700',
     danger:
-      'text-white bg-[#b91c1c] hover:bg-[#991b1b] focus:ring-[#fca5a5] dark:bg-[#dc2626] dark:hover:bg-[#b91c1c] dark:focus:ring-[#7f1d1d]',
+      'text-white bg-[var(--danger,#b91c1c)] hover:opacity-90 focus:ring-red-200 dark:bg-[#dc2626]',
     outline: // Similar to "Alternative" but often transparent background initially
-      'text-[#ea580c] hover:text-white border border-[#ea580c] hover:bg-[#ea580c] focus:ring-[#fdba74] dark:border-[#f97316] dark:text-[#fb923c] dark:hover:text-white dark:hover:bg-[#f97316] dark:focus:ring-[#9a3412]',
+      'text-[var(--primary,#ea580c)] hover:text-white border border-[var(--primary,#ea580c)] hover:bg-[var(--primary,#ea580c)] focus:ring-[var(--primary-light,#fdba74)]',
     light:
-      'text-gray-900 bg-white border border-gray-300 hover:bg-gray-100 focus:ring-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:border-gray-600 dark:focus:ring-gray-700',
+      'text-[var(--text-primary,#111827)] bg-[var(--surface,#ffffff)] border border-[var(--border,#e5e7eb)] hover:bg-[var(--background,#f9fafb)] focus:ring-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700',
   } as const;
 
   const sizes = {

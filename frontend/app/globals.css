@@ -8,8 +8,26 @@
   --foreground: #1c1917;
   --primary: #ea580c;
   --primary-hover: #c2410c;
+  --primary-light: #fff7ed;
   --primary-muted: #fff7ed;
   --primary-ring: rgba(234, 88, 12, 0.25);
+  --primary-rgb: 234, 88, 12;
+  --secondary: #0284c7;
+  --accent: #f59e0b;
+  --surface: #ffffff;
+  --sidebar: #ffffff;
+  --sidebar-text: #1c1917;
+  --sidebar-muted: #64748b;
+  --navbar: #ffffff;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text-primary: #1c1917;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --success: #16a34a;
+  --warning: #f59e0b;
+  --danger: #dc2626;
+  --info: #0284c7;
   --font-family-sans: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Roboto",
     "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", sans-serif;
   --font-family-mono: "JetBrains Mono", "Fira Code", "Source Code Pro", "SFMono-Regular",
@@ -21,8 +39,26 @@ html.dark {
   --foreground: #f8fafc;
   --primary: #f97316;
   --primary-hover: #ea580c;
+  --primary-light: #431407;
   --primary-muted: #431407;
   --primary-ring: rgba(249, 115, 22, 0.3);
+  --primary-rgb: 249, 115, 22;
+  --secondary: #38bdf8;
+  --accent: #fbbf24;
+  --surface: #1e293b;
+  --sidebar: #0f172a;
+  --sidebar-text: #f8fafc;
+  --sidebar-muted: #94a3b8;
+  --navbar: #0f172a;
+  --border: #334155;
+  --border-strong: #475569;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --info: #38bdf8;
   color-scheme: dark;
 }
 
@@ -30,6 +66,25 @@ html.dark {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-light: var(--primary-light);
+  --color-primary-muted: var(--primary-muted);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
+  --color-surface: var(--surface);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-text: var(--sidebar-text);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-navbar: var(--navbar);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text-main: var(--text-primary);
+  --color-text-sub: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
   --font-sans: var(--font-family-sans);
   --font-mono: var(--font-family-mono);
 }
@@ -146,4 +201,45 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   animation-name: float;
   animation-timing-function: linear;
   animation-iteration-count: infinite;
+}
+
+/* Scoped after-login theme rules (strictly for sidebar dashboard pages) */
+.portal-theme-shell {
+  background-color: var(--background);
+  color: var(--text-primary);
+}
+
+.portal-theme-shell table {
+  background-color: var(--surface);
+}
+
+.portal-theme-shell table thead tr {
+  background-color: var(--background);
+  color: var(--text-secondary);
+}
+
+.portal-theme-shell table th {
+  color: var(--text-secondary);
+}
+
+.portal-theme-shell table td {
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.portal-theme-shell table tbody tr:hover {
+  background-color: rgba(var(--primary-rgb), 0.05);
+}
+
+.portal-theme-shell select,
+.portal-theme-shell textarea {
+  background-color: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.portal-theme-shell select:focus,
+.portal-theme-shell textarea:focus {
+  border-color: var(--primary);
+  outline: none;
 }

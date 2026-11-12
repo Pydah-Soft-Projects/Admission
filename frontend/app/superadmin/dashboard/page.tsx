@@ -60,7 +60,7 @@ const getTodayDateString = () => {
 };
 
 const summaryCardConfig = [
-  { bar: 'bg-[#f97316]', bg: 'bg-[#fff7ed] dark:bg-[#fff7ed]/10', label: 'text-[#c2410c] dark:text-[#ffedd5]', value: 'text-[#7c2d12] dark:text-[#ffedd5]' },
+  { bar: 'bg-[var(--primary,#f97316)]', bg: 'bg-[var(--primary-light,#fff7ed)]', label: 'text-[var(--primary,#c2410c)]', value: 'text-[var(--primary-hover,#7c2d12)]' },
   { bar: 'bg-[#10b981]', bg: 'bg-[#ecfdf5] dark:bg-[#ecfdf5]/10', label: 'text-[#047857] dark:text-[#d1fae5]', value: 'text-[#064e3b] dark:text-[#d1fae5]' },
   { bar: 'bg-[#f43f5e]', bg: 'bg-[#fff1f2] dark:bg-[#fff1f2]/10', label: 'text-[#be123c] dark:text-[#ffe4e6]', value: 'text-[#881337] dark:text-[#ffe4e6]' },
   { bar: 'bg-[#8b5cf6]', bg: 'bg-[#f5f3ff] dark:bg-[#f5f3ff]/10', label: 'text-[#6d28d9] dark:text-[#ede9fe]', value: 'text-[#4c1d95] dark:text-[#ede9fe]' },
@@ -568,7 +568,7 @@ export default function SuperAdminDashboard() {
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between px-1">
               <h2 className="text-m font-semibold text-[#0f172a] dark:text-[#f1f5f9]">Today&apos;s scheduled calls</h2>
-              <Link href="/superadmin/leads" className="text-xs font-medium text-[#ea580c] hover:text-[#c2410c] dark:text-[#f97316]">
+              <Link href="/superadmin/leads" className="text-xs font-medium text-[var(--primary,#ea580c)] hover:text-[var(--primary-hover,#c2410c)]">
                 View all
               </Link>
             </div>
@@ -579,7 +579,7 @@ export default function SuperAdminDashboard() {
                   setShowAllCalls(false);
                 }}
                 className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${scheduledTab === 'today'
-                    ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300'
+                    ? 'bg-[var(--primary-light,#ffedd5)] text-[var(--primary,#c2410c)]'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
                   }`}
               >
@@ -616,7 +616,7 @@ export default function SuperAdminDashboard() {
                           </span>
                         </p>
                       </div>
-                      <span className="inline-flex items-center rounded-full bg-orange-50 dark:bg-orange-900/20 px-2 py-0.5 text-xs font-semibold text-orange-700 dark:text-orange-300">
+                      <span className="inline-flex items-center rounded-full bg-[var(--primary-light,#fff7ed)] px-2 py-0.5 text-xs font-semibold text-[var(--primary,#ea580c)]">
                         {formatNumber(row.count)}
                       </span>
                     </li>
@@ -638,7 +638,7 @@ export default function SuperAdminDashboard() {
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between px-1">
                 <h2 className="text-m font-semibold text-[#0f172a] dark:text-[#f1f5f9]">Recent Leads by Source</h2>
-                <Link href="/superadmin/leads" className="text-xs font-medium text-[#ea580c] hover:text-[#c2410c] dark:text-[#f97316]">
+                <Link href="/superadmin/leads" className="text-xs font-medium text-[var(--primary,#ea580c)] hover:text-[var(--primary-hover,#c2410c)]">
                   View leads
                 </Link>
               </div>
@@ -649,7 +649,7 @@ export default function SuperAdminDashboard() {
                       key={d}
                       onClick={() => setRecentLeadsDays(d as 3 | 7 | 10)}
                       className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${recentLeadsDays === d
-                          ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300'
+                          ? 'bg-[var(--primary-light,#ffedd5)] text-[var(--primary,#c2410c)]'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
                         }`}
                     >
@@ -969,13 +969,13 @@ export default function SuperAdminDashboard() {
             </label>
             {userPerfFiltersBusy ? (
               <span
-                className="inline-flex items-center gap-1.5 rounded-md border border-orange-200/80 bg-orange-50/90 px-2 py-1.5 text-xs font-medium text-orange-800 dark:border-orange-800/60 dark:bg-orange-950/50 dark:text-orange-200"
+                className="inline-flex items-center gap-1.5 rounded-md border border-[var(--primary)]/30 bg-[var(--primary-light,#fff7ed)] px-2 py-1.5 text-xs font-medium text-[var(--primary,#ea580c)]"
                 role="status"
                 aria-live="polite"
                 aria-label={userPerfListRefetching ? 'Updating list' : 'Applying search'}
               >
                 <Loader2
-                  className={`h-3.5 w-3.5 shrink-0 text-orange-600 dark:text-orange-300 ${userPerfListRefetching ? 'animate-spin' : 'animate-pulse'
+                  className={`h-3.5 w-3.5 shrink-0 text-[var(--primary,#ea580c)] ${userPerfListRefetching ? 'animate-spin' : 'animate-pulse'
                     }`}
                   aria-hidden
                 />
@@ -989,7 +989,7 @@ export default function SuperAdminDashboard() {
         </div>
         {userPerfFiltersBusy && userAnalyticsData ? (
           <div
-            className="h-0.5 w-full animate-pulse bg-orange-400 dark:bg-orange-500"
+            className="h-0.5 w-full animate-pulse bg-[var(--primary,#ea580c)]"
             aria-hidden
           />
         ) : null}

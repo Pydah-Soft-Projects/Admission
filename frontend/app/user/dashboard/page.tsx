@@ -529,7 +529,7 @@ export default function UserDashboard() {
             </div>
           )}
           <div className="flex items-center gap-3 px-1">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-orange-100 to-amber-100 text-orange-600 dark:from-orange-900/40 dark:to-amber-900/30 dark:text-orange-400">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--primary-light,#fff7ed)] text-[var(--primary,#ea580c)]">
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
@@ -586,9 +586,9 @@ export default function UserDashboard() {
                     key={lead._id}
                     type="button"
                     onClick={() => router.push(`/user/leads/${lead._id}`)}
-                    className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-orange-300 hover:shadow-md active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800 dark:hover:border-orange-700/50"
+                    className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-[var(--primary)] hover:shadow-md active:scale-[0.99] dark:border-slate-700 dark:bg-slate-800"
                   >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 font-bold text-sm">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--primary-light,#fff7ed)] text-[var(--primary,#ea580c)] font-bold text-sm">
                       {(lead.name || '?').charAt(0)}
                     </div>
                     <div className="min-w-0 flex-1">
@@ -619,7 +619,7 @@ export default function UserDashboard() {
                         {timeStr && (
                           <>
                             <span>•</span>
-                            <span className="text-orange-600 dark:text-orange-400 font-medium">{timeStr}</span>
+                            <span className="text-[var(--primary,#ea580c)] font-medium">{timeStr}</span>
                           </>
                         )}
                         <span className="w-full sm:w-auto sm:ml-0 text-[11px] text-slate-600 dark:text-slate-300">
@@ -797,7 +797,7 @@ export default function UserDashboard() {
                       />
                       <span className="text-sm font-medium text-slate-600 dark:text-slate-300">{item.name}</span>
                     </div>
-                    <span className="text-base font-semibold text-orange-600 dark:text-orange-300">{formatNumber(item.value)}</span>
+                    <span className="text-base font-semibold text-[var(--primary,#ea580c)]">{formatNumber(item.value)}</span>
                   </div>
                 ))}
               </div>
@@ -844,7 +844,7 @@ export default function UserDashboard() {
                       />
                       <span className="text-sm font-medium text-slate-600 dark:text-slate-300">{item.name}</span>
                     </div>
-                    <span className="text-base font-semibold text-orange-600 dark:text-orange-300">{formatNumber(item.value)}</span>
+                    <span className="text-base font-semibold text-[var(--primary,#ea580c)]">{formatNumber(item.value)}</span>
                   </div>
                 ))}
               </div>

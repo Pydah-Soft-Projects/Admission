@@ -5904,7 +5904,7 @@ export function JoiningLeadFormWorkspace({ adminLeadId, publicToken, publicBoots
         key: orderResult.key,
         amount: orderResult.amount,
         currency: orderResult.currency,
-        name: "Pydah Group",
+        name: "Campo Group",
         description: `Admission Fee Payment - Year ${builderPaymentYear}`,
         order_id: orderResult.orderId,
         handler: async function (response: any) {
