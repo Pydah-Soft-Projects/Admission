@@ -4,7 +4,7 @@ import { ReactNode, useEffect, useState, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { DashboardShell, DashboardNavItem, HomeIcon, ListIcon, ChartBarIcon, SettingsIcon, BookIcon, UserPlusIcon, CommunicationsIcon } from '@/components/layout/DashboardShell';
 import { auth } from '@/lib/auth';
-import { getFirstAccessiblePage } from '@/constants/permissions';
+import { getFirstAccessiblePage, isEmployeeRole } from '@/constants/permissions';
 import type { User } from '@/types';
 import { Loading } from '@/components/Loading';
 
@@ -52,7 +52,7 @@ export default function UserLayout({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (user.permissions && typeof user.permissions === 'object') {
+    if (!isEmployeeRole(user.roleName) && user.permissions && typeof user.permissions === 'object') {
       const hasSuperAdminModule = Object.entries(user.permissions).some(
         ([k, v]) =>
           k !== 'allowedSources' &&

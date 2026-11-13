@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { LoginLottie } from '@/components/LoginLottie';
 import { ForgotPasswordModal } from '@/components/auth/ForgotPasswordModal';
-import { getFirstAccessiblePage } from '@/constants/permissions';
+import { getFirstAccessiblePage, isEmployeeRole } from '@/constants/permissions';
 import type { User } from '@/types';
 
 const loginSchema = z.object({
@@ -29,6 +29,15 @@ function getRoleRedirectUrl(user: User): string {
   if (user.roleName === 'Super Admin' || user.roleName === 'Sub Super Admin') {
     return '/superadmin/dashboard';
   }
+  if (user.roleName === 'Data Entry User') {
+    return '/superadmin/leads/individual';
+  }
+  if (user.isManager) {
+    return '/manager/dashboard';
+  }
+  if (isEmployeeRole(user.roleName)) {
+    return '/user/dashboard';
+  }
   if (user.permissions && typeof user.permissions === 'object') {
     const hasAdminAccess = Object.entries(user.permissions).some(
       ([k, v]) =>
@@ -40,12 +49,6 @@ function getRoleRedirectUrl(user: User): string {
     if (hasAdminAccess) {
       return getFirstAccessiblePage(user.permissions, user.roleName);
     }
-  }
-  if (user.roleName === 'Data Entry User') {
-    return '/superadmin/leads/individual';
-  }
-  if (user.isManager) {
-    return '/manager/dashboard';
   }
   return '/user/dashboard';
 }

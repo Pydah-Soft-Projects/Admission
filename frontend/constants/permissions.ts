@@ -76,12 +76,32 @@ export const PERMISSION_MODULES: PermissionModuleDefinition[] = [
 
 export const DEFAULT_PERMISSION_LEVEL: ModulePermissionLevel = 'write';
 
+export const isEmployeeRole = (roleName?: string | null): boolean => {
+  if (!roleName) return false;
+  const normalized = roleName.trim().toLowerCase();
+  return (
+    normalized === 'student counselor' ||
+    normalized === 'student counsellor' ||
+    normalized === 'counselor' ||
+    normalized === 'counsellor' ||
+    normalized === 'pro' ||
+    normalized === 'telecaller' ||
+    normalized === 'caller' ||
+    normalized === 'employee' ||
+    normalized === 'user'
+  );
+};
+
 export const getFirstAccessiblePage = (
   permissions?: Record<string, unknown> | null,
   roleName?: string
 ): string => {
   if (roleName === 'Super Admin' || roleName === 'Sub Super Admin') {
     return '/superadmin/dashboard';
+  }
+
+  if (isEmployeeRole(roleName)) {
+    return '/user/dashboard';
   }
 
   const perms = (permissions || {}) as Record<string, { access?: boolean }>;

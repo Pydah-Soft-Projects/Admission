@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/lib/auth';
-import { getFirstAccessiblePage } from '@/constants/permissions';
+import { getFirstAccessiblePage, isEmployeeRole } from '@/constants/permissions';
 import { Button } from '@/components/ui/Button';
 import Image from 'next/image';
 
@@ -32,13 +32,15 @@ export default function Home() {
 
         if (user.roleName === 'Super Admin' || user.roleName === 'Sub Super Admin') {
           router.replace('/superadmin/dashboard');
-        } else if (hasAdminAccess()) {
-          const dest = getFirstAccessiblePage(user.permissions, user.roleName);
-          router.replace(dest);
         } else if (user.roleName === 'Data Entry User') {
           router.replace('/superadmin/leads/individual');
         } else if (user.isManager) {
           router.replace('/manager/dashboard');
+        } else if (isEmployeeRole(user.roleName)) {
+          router.replace('/user/dashboard');
+        } else if (hasAdminAccess()) {
+          const dest = getFirstAccessiblePage(user.permissions, user.roleName);
+          router.replace(dest);
         } else {
           router.replace('/user/dashboard');
         }
