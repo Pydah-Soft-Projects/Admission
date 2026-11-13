@@ -145,7 +145,7 @@ export function DocumentsChecklistTabs({
           className={cn(
             'flex-1 rounded-lg px-4 py-2 text-xs font-semibold transition sm:flex-initial sm:text-sm',
             activeTab === 'important'
-              ? 'bg-violet-600 text-white shadow-sm'
+              ? 'bg-[var(--primary)] text-white shadow-sm'
               : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800',
             !hasImportant && 'cursor-not-allowed opacity-50'
           )}
@@ -162,7 +162,7 @@ export function DocumentsChecklistTabs({
           className={cn(
             'flex-1 rounded-lg px-4 py-2 text-xs font-semibold transition sm:flex-initial sm:text-sm',
             activeTab === 'other'
-              ? 'bg-violet-600 text-white shadow-sm'
+              ? 'bg-[var(--primary)] text-white shadow-sm'
               : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800',
             !hasOther && 'cursor-not-allowed opacity-50'
           )}

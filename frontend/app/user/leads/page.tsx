@@ -820,24 +820,46 @@ export default function UserLeadsPage() {
       </div>
 
       {/* Tabs: Assigned | Touched Today */}
-      <div className="flex w-full min-w-0 gap-1 rounded-lg border border-slate-200 bg-slate-50/50 p-1 dark:border-slate-700 dark:bg-slate-800/30 sm:w-fit">
+      <div 
+        className="flex w-full min-w-0 gap-1 rounded-lg border p-1 sm:w-fit"
+        style={{
+          borderColor: 'var(--border, #e2e8f0)',
+          backgroundColor: 'var(--surface, #f8fafc)',
+        }}
+      >
         <button
           type="button"
           onClick={() => setActiveTab('assigned')}
-          className={`flex-1 rounded-md px-3 py-2.5 text-xs font-medium transition-colors sm:flex-initial sm:px-4 sm:text-sm ${activeTab === 'assigned'
-            ? 'bg-orange-500 text-white shadow-sm hover:bg-orange-600 dark:bg-orange-500 dark:hover:bg-orange-600'
-            : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-            }`}
+          className="flex-1 rounded-md px-3 py-2.5 text-xs font-medium transition-colors sm:flex-initial sm:px-4 sm:text-sm shadow-sm"
+          style={
+            activeTab === 'assigned'
+              ? {
+                  backgroundColor: 'var(--primary, #ea580c)',
+                  color: '#ffffff',
+                }
+              : {
+                  color: 'var(--text-secondary, #64748b)',
+                  backgroundColor: 'transparent',
+                }
+          }
         >
           Assigned
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('touched')}
-          className={`flex-1 rounded-md px-3 py-2.5 text-xs font-medium transition-colors sm:flex-initial sm:px-4 sm:text-sm ${activeTab === 'touched'
-            ? 'bg-orange-500 text-white shadow-sm hover:bg-orange-600 dark:bg-orange-500 dark:hover:bg-orange-600'
-            : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-            }`}
+          className="flex-1 rounded-md px-3 py-2.5 text-xs font-medium transition-colors sm:flex-initial sm:px-4 sm:text-sm shadow-sm"
+          style={
+            activeTab === 'touched'
+              ? {
+                  backgroundColor: 'var(--primary, #ea580c)',
+                  color: '#ffffff',
+                }
+              : {
+                  color: 'var(--text-secondary, #64748b)',
+                  backgroundColor: 'transparent',
+                }
+          }
         >
           Touched Today
         </button>
@@ -912,10 +934,7 @@ export default function UserLeadsPage() {
                       onClick={() => setPage(pageNum)}
                       disabled={isLoading}
                       size="sm"
-                      className={`h-9 min-w-[36px] px-2 transition-colors ${page === pageNum
-                        ? '!bg-orange-400 !border-orange-400 hover:!bg-orange-500'
-                        : 'hover:border-orange-400 hover:text-orange-400'
-                        }`}
+                      className="h-9 min-w-[36px] px-2 transition-colors"
                     >
                       {pageNum}
                     </Button>
@@ -1063,20 +1082,23 @@ export default function UserLeadsPage() {
               <article
                 key={`lead-${lead._id}`}
                 onClick={() => router.push(`/user/leads/${lead._id}`)}
-                className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm transition-all duration-200 hover:shadow-md hover:border-orange-200/80 cursor-pointer"
+                className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm transition-all duration-200 hover:shadow-md hover:border-[var(--primary)]/30 cursor-pointer"
               >
-                <div className="h-0.5 w-full bg-slate-100 group-hover:bg-orange-100 transition-colors" aria-hidden />
+                <div className="h-0.5 w-full bg-slate-100 group-hover:bg-[var(--primary)]/15 transition-colors" aria-hidden />
                 <div className="relative flex flex-1 flex-col p-3 sm:p-4">
                   <div className="flex items-start justify-between gap-2 min-w-0">
                     <div className="flex items-start gap-2 min-w-0 flex-1">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-400 text-white shadow-sm ring-1 ring-orange-600/20 font-semibold text-sm uppercase">
+                      <div
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white shadow-sm ring-1 ring-black/10 font-semibold text-sm uppercase"
+                        style={{ backgroundColor: 'var(--primary, #ea580c)' }}
+                      >
                         {(lead.name || '?').charAt(0)}
                       </div>
                       <div className="min-w-0 flex-1">
                         <Link
                           href={`/user/leads/${lead._id}`}
                           onClick={(e) => e.stopPropagation()}
-                          className="block truncate text-sm font-semibold text-slate-900 underline underline-offset-2 decoration-orange-500 hover:text-orange-600 dark:text-slate-100 dark:decoration-orange-400 dark:hover:text-orange-400"
+                          className="block truncate text-sm font-semibold text-slate-900 underline underline-offset-2 decoration-[var(--primary)] hover:text-[var(--primary)] dark:text-slate-100"
                         >
                           {lead.name || '—'}
                         </Link>

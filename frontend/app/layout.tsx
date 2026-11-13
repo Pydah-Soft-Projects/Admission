@@ -76,6 +76,9 @@ export default function RootLayout({
         <link rel="icon" type="image/png" sizes="32x32" href="/campo-logos/favicon-32x32.png" />
         <link rel="apple-touch-icon" href="/campo-logos/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
         <meta name="apple-mobile-web-app-title" content="Campo" />
         <meta name="application-name" content="Campo" />
         <meta name="theme-color" content="#000000" />

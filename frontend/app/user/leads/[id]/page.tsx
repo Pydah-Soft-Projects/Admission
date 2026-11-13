@@ -29,16 +29,17 @@ import { showToast } from '@/lib/toast';
 import { LeadDetailSkeleton } from '@/components/ui/Skeleton';
 import { useDashboardHeader } from '@/components/layout/DashboardShell';
 import { useLocations } from '@/lib/useLocations';
-import { cn, formatSecondsToMMSS, parseMMSSToSeconds } from '@/lib/utils';
+import { cn, formatSecondsToMMSS } from '@/lib/utils';
 
 // Timeline item type
 interface TimelineItem {
   id: string;
-  type: 'enquiry_created' | 'assigned' | 'call' | 'sms' | 'field_update' | 'status_change' | 'comment';
+  type: 'enquiry_created' | 'assigned' | 'call' | 'sms' | 'whatsapp' | 'field_update' | 'status_change' | 'comment';
   date: string;
   title: string;
   description: string;
   performedBy?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   metadata?: Record<string, any>;
 }
 
@@ -556,10 +557,11 @@ export default function UserLeadDetailPage() {
     );
 
     if (assignmentLog) {
-      const assignedUserName = assignmentLog.metadata?.assignment?.assignedTo
+      const assignmentMeta = assignmentLog.metadata as Record<string, any> | undefined;
+      const assignedUserName = assignmentMeta?.assignment?.assignedTo
         ? 'Counsellor'
         : 'Unknown';
-      const metaTd = assignmentLog.metadata?.assignment?.targetDate;
+      const metaTd = assignmentMeta?.assignment?.targetDate;
       const fromLead = lead?.targetDate ?? (lead as { target_date?: string })?.target_date;
       const assignmentTargetYmd =
         (typeof metaTd === 'string' && /^\d{4}-\d{2}-\d{2}/.test(metaTd.trim()) ? metaTd.trim().slice(0, 10) : '') ||
@@ -596,12 +598,12 @@ export default function UserLeadDetailPage() {
 
     // 3. Calls and SMS from communication records with sequence numbers
     // Group communications by contact number and type, then sort chronologically
-    const communicationsByNumber = new Map<string, { calls: typeof communications; sms: typeof communications }>();
+    const communicationsByNumber = new Map<string, { calls: typeof communications; sms: typeof communications; whatsapp: typeof communications }>();
 
     communications.forEach((comm) => {
       const number = comm.contactNumber || 'Unknown';
       if (!communicationsByNumber.has(number)) {
-        communicationsByNumber.set(number, { calls: [], sms: [] });
+        communicationsByNumber.set(number, { calls: [], sms: [], whatsapp: [] });
       }
       const group = communicationsByNumber.get(number)!;
       if (comm.type === 'call') {
@@ -1227,7 +1229,7 @@ export default function UserLeadDetailPage() {
 
   const visitorCodeMutation = useMutation({
     mutationFn: (id: string) => visitorAPI.generateCode(id),
-    onSuccess: (response) => {
+    onSuccess: (response: { success?: boolean; message?: string; data?: { resent?: boolean } }) => {
       if (response.success) {
         setVisitorCodeSendResult({ resent: response.data?.resent });
         setShowVisitorCodeModal(true);
@@ -1529,7 +1531,8 @@ export default function UserLeadDetailPage() {
             <button
               type="button"
               onClick={openStatusModal}
-              className="flex items-center justify-center size-10 rounded-xl bg-orange-500 hover:bg-orange-600 active:scale-95 text-white shadow-sm"
+              className="flex items-center justify-center size-10 rounded-xl active:scale-95 text-white shadow-sm hover:opacity-90"
+              style={{ backgroundColor: 'var(--primary, #ea580c)' }}
               aria-label={`Update ${statusButtonLabel}`}
             >
               <svg className="size-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1586,17 +1589,25 @@ export default function UserLeadDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-6">
         {/* LEFT COLUMN - Student Details & History */}
         <div className="lg:col-span-2 space-y-3 sm:space-y-6">
-          {/* SECTION 1: PROFILE CARD - identity / pass style, rich orange gradient; compact on mobile */}
-          <div className="relative overflow-hidden rounded-xl sm:rounded-2xl border-2 border-orange-400/50 shadow-lg sm:shadow-xl shadow-orange-900/20">
-            {/* Lighter orange gradient background */}
-            <div className="absolute inset-0 bg-gradient-to-t from-orange-400 to-orange-600" aria-hidden />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/10 via-transparent to-white/15" aria-hidden />
+          {/* SECTION 1: PROFILE CARD - identity / pass style, dynamic theme primary; compact on mobile */}
+          <div
+            className="relative overflow-hidden rounded-xl sm:rounded-2xl border-2 shadow-lg sm:shadow-xl"
+            style={{
+              borderColor: 'var(--border, rgba(255,255,255,0.2))',
+              backgroundColor: 'var(--primary, #ea580c)'
+            }}
+          >
+            {/* Lighter contrast overlay */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-white/10" aria-hidden />
 
             <div className="relative px-3 py-3 sm:px-6 sm:py-6">
               <>
                 {/* Profile header: avatar (initial) + name + phone - compact on mobile */}
                 <div className="flex items-center gap-3 sm:gap-4">
-                  <div className="flex h-10 w-10 sm:h-14 sm:w-14 shrink-0 items-center justify-center rounded-full bg-white/95 text-orange-600 shadow-md ring-2 ring-white/50 font-bold text-lg sm:text-xl uppercase">
+                  <div
+                    className="flex h-10 w-10 sm:h-14 sm:w-14 shrink-0 items-center justify-center rounded-full bg-white shadow-md ring-2 ring-white/50 font-bold text-lg sm:text-xl uppercase"
+                    style={{ color: 'var(--primary, #ea580c)' }}
+                  >
                     {(lead.name || '?').charAt(0)}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -1813,7 +1824,12 @@ export default function UserLeadDetailPage() {
               <button
                 type="button"
                 onClick={openStatusModal}
-                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg bg-orange-50 hover:bg-orange-100 border border-orange-200 dark:bg-orange-900/20 dark:border-orange-800 dark:hover:bg-orange-900/30 text-orange-700 dark:text-orange-300 text-xs sm:text-sm font-medium"
+                className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg border text-xs sm:text-sm font-medium transition-colors"
+                style={{
+                  backgroundColor: 'var(--primary-light, #fff7ed)',
+                  borderColor: 'var(--primary, #ea580c)',
+                  color: 'var(--primary, #ea580c)'
+                }}
               >
                 <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -1943,7 +1959,11 @@ export default function UserLeadDetailPage() {
                             setSmsData({ selectedNumbers: [option.number], selectedTemplates: {}, languageFilter: 'all' });
                             setShowSmsModal(true);
                           }}
-                          className="flex items-center justify-center w-9 h-9 rounded-lg bg-orange-100 hover:bg-orange-200 dark:bg-orange-900/30 dark:hover:bg-orange-900/50 text-orange-700 dark:text-orange-300"
+                          className="flex items-center justify-center w-9 h-9 rounded-lg transition-colors"
+                          style={{
+                            backgroundColor: 'var(--primary-light, #fff7ed)',
+                            color: 'var(--primary, #ea580c)'
+                          }}
                           aria-label="SMS"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1998,7 +2018,8 @@ export default function UserLeadDetailPage() {
                         }
                         setShowScheduleCallModal(true);
                       }}
-                      className="inline-flex items-center justify-center gap-1.5 min-h-8 px-3 rounded-md text-xs font-medium bg-orange-500 hover:bg-orange-600 text-white shadow-sm active:scale-[0.98] shrink-0"
+                      className="inline-flex items-center justify-center gap-1.5 min-h-8 px-3 rounded-md text-xs font-medium text-white shadow-sm active:scale-[0.98] shrink-0 hover:opacity-90 transition-opacity"
+                      style={{ backgroundColor: 'var(--primary, #ea580c)' }}
                     >
                       <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -2060,7 +2081,7 @@ export default function UserLeadDetailPage() {
               <div className="border-t border-slate-200 dark:border-slate-700 px-3 py-2 sm:px-4 sm:py-3">
                 {isLoadingLogs ? (
                   <div className="text-center py-4">
-                    <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                    <div className="w-6 h-6 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin mx-auto"></div>
                   </div>
                 ) : timelineItems.length === 0 ? (
                   <p className="text-slate-500 dark:text-slate-400 text-center py-3 text-xs">No history yet</p>
@@ -2243,7 +2264,7 @@ export default function UserLeadDetailPage() {
               <p className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-400 mb-2 pb-1 border-b border-slate-200 dark:border-slate-700">Status Changes</p>
               {isLoadingLogs ? (
                 <div className="text-center py-3">
-                  <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                  <div className="w-6 h-6 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin mx-auto"></div>
                 </div>
               ) : statusChanges.length === 0 ? (
                 <p className="text-gray-500 text-center py-3 text-xs sm:text-sm">No status changes</p>
@@ -2276,7 +2297,7 @@ export default function UserLeadDetailPage() {
                           </span>
                         </div>
                         {log.comment && (
-                          <p className="text-[11px] sm:text-xs text-gray-600 dark:text-slate-400 mt-1.5 italic line-clamp-2">"{log.comment}"</p>
+                          <p className="text-[11px] sm:text-xs text-gray-600 dark:text-slate-400 mt-1.5 italic line-clamp-2">&quot;{log.comment}&quot;</p>
                         )}
                       </div>
                     </div>
@@ -2675,11 +2696,18 @@ export default function UserLeadDetailPage() {
         {/* Auto-Call Countdown Timer Overlay - Centered and Optimised */}
         {isAutoCalling && (
           <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300 px-4">
-            <Card className="w-full max-w-sm p-6 shadow-2xl border-orange-500 border-2 bg-white dark:bg-slate-900 transform scale-100 animate-in zoom-in-95 duration-200">
+            <Card className="w-full max-w-sm p-6 shadow-2xl border-2 bg-white dark:bg-slate-900 transform scale-100 animate-in zoom-in-95 duration-200" style={{ borderColor: 'var(--primary, #ea580c)' }}>
               <div className="flex flex-col items-center text-center space-y-4">
                 <div className="relative flex h-16 w-16 items-center justify-center">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-20"></span>
-                  <div className="relative inline-flex items-center justify-center rounded-full h-14 w-14 bg-orange-100 dark:bg-orange-900/30 border-2 border-orange-500 text-orange-600 dark:text-orange-400 text-2xl font-bold">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-20" style={{ backgroundColor: 'var(--primary, #ea580c)' }}></span>
+                  <div
+                    className="relative inline-flex items-center justify-center rounded-full h-14 w-14 border-2 text-2xl font-bold"
+                    style={{
+                      backgroundColor: 'var(--primary-light, #fff7ed)',
+                      borderColor: 'var(--primary, #ea580c)',
+                      color: 'var(--primary, #ea580c)'
+                    }}
+                  >
                     {autoCallTimer}
                   </div>
                 </div>
@@ -2707,7 +2735,7 @@ export default function UserLeadDetailPage() {
                   )}
 
                   <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Calling in <span className="font-bold text-orange-600 dark:text-orange-400 text-lg">{autoCallTimer}s</span>...
+                    Calling in <span className="font-bold text-lg" style={{ color: 'var(--primary, #ea580c)' }}>{autoCallTimer}s</span>...
                   </p>
                 </div>
 
@@ -2744,7 +2772,7 @@ export default function UserLeadDetailPage() {
                     <label
                       key={`${option.label}-${option.number}-${index}`}
                       className={`flex items-center gap-3 w-full p-3 rounded-lg border-2 cursor-pointer transition-all ${isSelected
-                        ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20 dark:border-orange-500'
+                        ? 'border-[var(--primary)] bg-[var(--primary-light)]/40'
                         : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600'
                         }`}
                     >
@@ -2754,7 +2782,7 @@ export default function UserLeadDetailPage() {
                         value={option.number}
                         checked={isSelected}
                         onChange={() => setSelectedCallNumber(option.number)}
-                        className="h-4 w-4 accent-orange-500 border-slate-300 focus:ring-orange-500 focus:ring-2"
+                        className="h-4 w-4 accent-[var(--primary)] border-slate-300 focus:ring-[var(--primary)] focus:ring-2"
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{option.label}</p>
@@ -2818,7 +2846,7 @@ export default function UserLeadDetailPage() {
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">Call #</p>
-                      <p className="text-sm font-semibold text-orange-600 dark:text-orange-400">
+                      <p className="text-sm font-semibold" style={{ color: 'var(--primary, #ea580c)' }}>
                         {(communicationStatsMap.get(callData.contactNumber)?.callCount || 0) + 1}
                       </p>
                     </div>
@@ -2826,7 +2854,7 @@ export default function UserLeadDetailPage() {
                   <div>
                     <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Outcome *</label>
                     <select
-                      className="w-full px-2.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                      className="w-full px-2.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)] bg-white dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                       value={callData.outcome}
                       onChange={(e) =>
                         setCallData((prev) => ({ ...prev, outcome: e.target.value }))
@@ -2841,13 +2869,13 @@ export default function UserLeadDetailPage() {
 
                   {/* Conditional Next Scheduled Call Input */}
                   {['call back', 'interested', 'busy', 'not answered', 'no answer'].some(s => (callData.outcome || '').toLowerCase().includes(s)) && (
-                    <div className="p-3 bg-orange-50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-800/30 rounded-lg">
-                      <label className="block text-xs font-medium text-orange-800 dark:text-orange-300 mb-1">
+                    <div className="p-3 bg-[var(--primary-light)]/40 border border-[var(--primary)]/20 rounded-lg">
+                      <label className="block text-xs font-medium mb-1" style={{ color: 'var(--primary, #ea580c)' }}>
                         Schedule Next Call/Follow-up
                       </label>
                       <input
                         type="datetime-local"
-                        className="w-full px-2.5 py-2 text-sm border border-orange-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white dark:border-orange-900/50 dark:bg-slate-800 dark:text-slate-100"
+                        className="w-full px-2.5 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)] bg-white dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
                         value={callScheduledDate}
                         onChange={(e) => setCallScheduledDate(e.target.value)}
                       />
@@ -2860,7 +2888,7 @@ export default function UserLeadDetailPage() {
                       id="autoUpdateStatus"
                       checked={autoUpdateStatus}
                       onChange={(e) => setAutoUpdateStatus(e.target.checked)}
-                      className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                      className="w-4 h-4 accent-[var(--primary)] border-gray-300 rounded focus:ring-[var(--primary)]"
                     />
                     <label htmlFor="autoUpdateStatus" className="text-sm text-slate-700 dark:text-slate-300">
                       Update Lead Status to <span className="font-semibold">{callData.outcome || '...'}</span>
@@ -2880,7 +2908,7 @@ export default function UserLeadDetailPage() {
                   <div>
                     <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Remarks – optional</label>
                     <textarea
-                      className="w-full px-2.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[80px] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                      className="w-full px-2.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)] min-h-[80px] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                       value={callData.remarks}
                       onChange={(e) =>
                         setCallData((prev) => ({ ...prev, remarks: e.target.value }))
@@ -3062,7 +3090,7 @@ export default function UserLeadDetailPage() {
 
                         {isLoadingTemplates ? (
                           <div className="text-center py-4 sm:py-6">
-                            <div className="w-6 h-6 sm:w-8 sm:h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                            <div className="w-6 h-6 sm:w-8 sm:h-8 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin mx-auto"></div>
                           </div>
                         ) : filteredTemplates.length === 0 ? (
                           <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
@@ -3410,7 +3438,8 @@ export default function UserLeadDetailPage() {
                 type="submit"
                 variant="primary"
                 disabled={updateMutation.isPending}
-                className="h-10 w-full bg-orange-600 hover:bg-orange-700 text-white shadow-sm"
+                className="h-10 w-full text-white shadow-sm hover:opacity-90"
+                style={{ backgroundColor: 'var(--primary, #ea580c)' }}
               >
                 {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
               </Button>
@@ -3542,7 +3571,7 @@ export default function UserLeadDetailPage() {
                           value={whatsAppData.templateId}
                           onChange={(e) => {
                             const tId = e.target.value;
-                            const t = whatsappTemplates.find(x => x.id === tId);
+                            const t = whatsappTemplates.find(x => (x.id || x._id) === tId);
                             setWhatsAppData(prev => ({ 
                               ...prev, 
                               templateId: tId,
@@ -3553,7 +3582,7 @@ export default function UserLeadDetailPage() {
                         >
                           <option value="">Select a Template</option>
                           {whatsappTemplates.map(t => (
-                            <option key={t.id} value={t.id}>{t.name}</option>
+                            <option key={t.id || t._id} value={t.id || t._id}>{t.name}</option>
                           ))}
                         </select>
                       </div>
@@ -3561,13 +3590,13 @@ export default function UserLeadDetailPage() {
 
                     {/* Variables & Media (Only if template selected) */}
                     {whatsAppData.templateId && (() => {
-                      const template = whatsappTemplates.find(t => t.id === whatsAppData.templateId);
+                      const template = whatsappTemplates.find(t => (t.id || t._id) === whatsAppData.templateId);
                       if (!template) return null;
                       
                       return (
                         <div className="space-y-6 pt-4 border-t border-slate-200 dark:border-slate-700">
                           {/* Media Selection if applicable */}
-                          {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(template.headerType) && (
+                          {Boolean(template.headerType && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(template.headerType)) && (
                             <div className="space-y-2">
                               <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Header Media ({template.headerType})</label>
                               <select 
@@ -3639,7 +3668,7 @@ export default function UserLeadDetailPage() {
                     whatsAppData.selectedNumbers.length === 0
                   }
                   onClick={() => {
-                    const t = whatsappTemplates.find(x => x.id === whatsAppData.templateId);
+                    const t = whatsappTemplates.find(x => (x.id || x._id) === whatsAppData.templateId);
                     if (!t) return;
                     
                     whatsappMutation.mutate({
@@ -3679,7 +3708,7 @@ export default function UserLeadDetailPage() {
                 
                 <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
                   {(() => {
-                    const t = whatsappTemplates.find(x => x.id === whatsAppData.templateId);
+                    const t = whatsappTemplates.find(x => (x.id || x._id) === whatsAppData.templateId);
                     if (!t) return <p className="text-sm text-slate-500 italic">No template selected</p>;
                     
                     return (

@@ -106,7 +106,7 @@ export function AdmissionReferenceHistoryDialog({
                   <span
                     className={cn(
                       'absolute -left-[1.4rem] top-1.5 h-2.5 w-2.5 rounded-full ring-4 ring-white dark:ring-slate-900',
-                      'bg-orange-500'
+                      'bg-[var(--primary)]'
                     )}
                   />
                   <div className="rounded-xl border border-slate-200 bg-white/90 p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
@@ -119,7 +119,7 @@ export function AdmissionReferenceHistoryDialog({
                           {formatDateTime(event.at)}
                         </p>
                       </div>
-                      <span className="inline-flex rounded-full border border-orange-300 bg-orange-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-orange-800 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200">
+                      <span className="inline-flex rounded-full border border-[var(--primary)]/30 bg-[var(--primary-light)]/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--primary)]">
                         reference
                       </span>
                     </div>

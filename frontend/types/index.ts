@@ -355,6 +355,7 @@ export interface MessageTemplateGroup {
 
 export interface MessageTemplate {
   _id: string;
+  id?: string;
   name: string;
   /** Optional folder-style group (admin UI + filtering). */
   templateGroupId?: string | null;
@@ -400,7 +401,8 @@ export interface CommunicationRecord {
     variables?: MessageTemplateVariable[];
   };
   providerMessageIds?: string[];
-  metadata?: Record<string, unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  metadata?: Record<string, any>;
   sentBy: User | string;
   sentAt: string;
   createdAt: string;
@@ -427,6 +429,7 @@ export interface CommunicationStatsEntry {
   contactNumber: string;
   callCount: number;
   smsCount: number;
+  whatsappCount?: number;
   lastContactedAt?: string;
   lastCallAt?: string;
   lastSmsAt?: string;
@@ -1191,7 +1194,8 @@ export interface ActivityLog {
   newStatus?: string;
   comment?: string;
   performedBy: User | string;
-  metadata?: Record<string, unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  metadata?: Record<string, any>;
   createdAt: string;
   updatedAt: string;
 }

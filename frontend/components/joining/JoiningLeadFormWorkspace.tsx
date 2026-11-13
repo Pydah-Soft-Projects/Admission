@@ -8264,7 +8264,7 @@ export function JoiningLeadFormWorkspace({ adminLeadId, publicToken, publicBoots
                           isUpdatingAdmission ||
                           isSaving
                         }
-                        className="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-orange-600 hover:bg-orange-700 text-white shadow-sm transition"
+                        className="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-[var(--primary)] hover:opacity-90 text-white shadow-sm transition"
                       >
                         {isSavingReference ? 'Saving...' : 'Save'}
                       </Button>
@@ -8327,7 +8327,7 @@ export function JoiningLeadFormWorkspace({ adminLeadId, publicToken, publicBoots
                           isUpdatingAdmission ||
                           isSaving
                         }
-                        className="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-orange-600 hover:bg-orange-700 text-white shadow-sm transition"
+                        className="shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold bg-[var(--primary)] hover:opacity-90 text-white shadow-sm transition"
                       >
                         {isSavingAdmissionPhase ? 'Saving...' : 'Save'}
                       </Button>
@@ -8929,7 +8929,7 @@ export function JoiningLeadFormWorkspace({ adminLeadId, publicToken, publicBoots
                               : selected
                                 ? 'bg-blue-50/70 dark:bg-blue-950/30'
                                 : isAdhoc
-                                  ? 'bg-orange-50/40 dark:bg-orange-950/20'
+                                  ? 'bg-[var(--primary-light)]/40 dark:bg-[var(--primary-light)]/20'
                                   : undefined
                           }
                         >
@@ -8990,7 +8990,7 @@ export function JoiningLeadFormWorkspace({ adminLeadId, publicToken, publicBoots
                             ) : null}
                             {isAdhoc ? (
                               <div className="mt-0.5 flex items-center gap-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-300">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--primary, #ea580c)' }}>
                                   Extra fee head
                                 </span>
                                 <button

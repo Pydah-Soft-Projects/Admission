@@ -229,8 +229,8 @@ export default function AdmissionDetailPage() {
   const lead =
     (admission?.leadData as AdmissionLeadData | undefined) ||
     (data?.data?.lead as AdmissionLeadData | undefined);
-  const cancellationDetails = (admission?.leadData?._admissionCancellation ||
-    lead?._admissionCancellation) as AdmissionCancellationDetails | undefined;
+  const cancellationDetails = ((lead as any)?._admissionCancellation ||
+    (admission?.leadData as any)?._admissionCancellation) as AdmissionCancellationDetails | undefined;
   const isAdmissionCancelled = admission?.status === ADMISSION_CANCELLED_STATUS;
   const cancellationRemark = String(cancellationDetails?.reason || '').trim();
 
@@ -894,7 +894,7 @@ export default function AdmissionDetailPage() {
                   onChange={(event) =>
                     setCancelForm((prev) => ({ ...prev, reason: event.target.value }))
                   }
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 transition-all duration-200 placeholder:text-slate-400 hover:border-slate-300 hover:bg-white focus:border-orange-500/50 focus:bg-white focus:outline-none focus:ring-4 focus:ring-orange-500/10 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-100 dark:placeholder:text-slate-500 dark:hover:border-slate-700 dark:hover:bg-slate-900 dark:focus:border-orange-500/50 dark:focus:bg-slate-950 dark:focus:ring-orange-900/20"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 transition-all duration-200 placeholder:text-slate-400 hover:border-slate-300 hover:bg-white focus:border-[var(--primary)]/50 focus:bg-white focus:outline-none focus:ring-4 focus:ring-[var(--primary)]/10 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-100 dark:placeholder:text-slate-500 dark:hover:border-slate-700 dark:hover:bg-slate-900 dark:focus:border-[var(--primary)]/50 dark:focus:bg-slate-950 dark:focus:ring-[var(--primary)]/20"
                   placeholder="Enter cancellation reason"
                   required
                 />

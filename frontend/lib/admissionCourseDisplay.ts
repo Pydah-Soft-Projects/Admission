@@ -9,7 +9,8 @@ type RegistrationExtrasSource = {
   courseId?: string | null;
   getCourseName?: (courseId?: string | null) => string;
   registrationFormData?: Record<string, unknown> | null;
-  leadData?: Record<string, unknown> | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  leadData?: Record<string, any> | null;
   admissionNumber?: string | null;
 };
 
@@ -43,7 +44,8 @@ export function resolveAdmissionCourseDisplayLabel(args: RegistrationExtrasSourc
 type JoiningOrAdmissionLike = {
   courseInfo?: { course?: string; courseId?: string | null };
   registrationFormData?: Record<string, unknown> | null;
-  leadData?: Record<string, unknown> | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  leadData?: Record<string, any> | null;
   admissionNumber?: string | null;
   lead?: { courseInterested?: string | null };
 };

@@ -20,14 +20,6 @@ export default function FloatingBubbles() {
 
     useEffect(() => {
         // Generate bubbles only on client side to avoid hydration mismatch
-        const colors = [
-            'bg-orange-500',
-            'bg-orange-400',
-            'bg-amber-500',
-            'bg-amber-400',
-            'bg-orange-300',
-        ];
-
         const newBubbles = Array.from({ length: 20 }).map((_, i) => ({
             id: i,
             size: Math.random() * 60 + 20, // 20px to 80px
@@ -35,7 +27,7 @@ export default function FloatingBubbles() {
             animationDuration: Math.random() * 15 + 15, // 15s to 30s
             animationDelay: Math.random() * 10, // 0s to 10s
             opacity: Math.random() * 0.2 + 0.1, // 0.1 to 0.3
-            color: colors[Math.floor(Math.random() * colors.length)],
+            color: 'bg-[var(--primary)]',
         }));
 
         setBubbles(newBubbles);

@@ -34,6 +34,7 @@ import { NotificationBell } from '../NotificationBell';
 import { MobileBottomNav, flattenNavItemsForMobile } from './MobileBottomNav';
 import { MobileMenuSheet } from './MobileMenuSheet';
 import { LogoutConfirmModal } from '../auth/LogoutConfirmModal';
+import { ChevronLeft, ChevronRight, LogOut, ChevronDown } from 'lucide-react';
 
 type IconProps = React.SVGProps<SVGSVGElement>;
 type IconComponent = React.FC<IconProps>;
@@ -247,6 +248,7 @@ export type DashboardNavItem = {
   label: string;
   icon?: IconComponent;
   badge?: string;
+  section?: string;
   children?: DashboardNavItem[];
   permissionKey?: string;
   /** Hide unless the user has this joining-desk page (in addition to module access). */
@@ -658,9 +660,35 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
     '/superadmin/visitors',
   ].includes(pathname) || isJoiningListPath(pathname);
 
+  const getItemSection = useCallback((item: DashboardNavItem): string => {
+    if (item.section) return item.section;
+    const label = item.label.toLowerCase();
+    const href = item.href.toLowerCase();
+    if (label === 'overview' || label === 'dashboard' || href.endsWith('/dashboard')) {
+      return 'MAIN';
+    }
+    if (
+      href.includes('/users') ||
+      href.includes('/settings') ||
+      href.includes('/profile') ||
+      href.includes('/reports') ||
+      href.includes('/form-builder') ||
+      href.includes('/utm-builder') ||
+      href.includes('/master-data') ||
+      label.includes('user management') ||
+      label.includes('report') ||
+      label.includes('setting')
+    ) {
+      return 'ADMINISTRATION';
+    }
+    return 'OPERATIONS';
+  }, []);
+
   const renderNavItems = useCallback(
     (items: DashboardNavItem[], level = 0): ReactNode => {
       const activeLeafHref = resolveActiveNavHref(items, pathname);
+      let lastSection = '';
+
       return items.map((item) => {
         const hasChildren = !!(item.children && item.children.length > 0);
         const Icon = item.icon;
@@ -669,24 +697,40 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
           : activeLeafHref === item.href;
         const isGroupOpen = openGroups.has(item.href);
         const paddingLeft = isCollapsed ? undefined : level * 16;
+
+        let sectionHeader = null;
+        if (level === 0) {
+          const currentSection = getItemSection(item);
+          if (currentSection !== lastSection) {
+            lastSection = currentSection;
+            if (!isCollapsed) {
+              sectionHeader = (
+                <div 
+                  key={`sec-${currentSection}`}
+                  className="px-3 pt-5 pb-1.5 text-[11px] font-bold uppercase tracking-wider select-none"
+                  style={{ color: 'var(--sidebar-muted, #94a3b8)' }}
+                >
+                  {currentSection}
+                </div>
+              );
+            }
+          }
+        }
+
         const rowClassName = cn(
-          'flex w-full min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2 text-left transition-all duration-200 outline-none select-none cursor-pointer',
-          isCollapsed && 'justify-center',
+          'flex w-full min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-200 outline-none select-none cursor-pointer',
+          isCollapsed ? 'justify-center px-2' : '',
           isActive
-            ? cn(
-                'font-semibold shadow-xs',
-                !isCollapsed && 'border-l-[3px]'
-              )
-            : 'hover:bg-[var(--primary-light)]/40 hover:text-[var(--primary)] text-[var(--sidebar-text)] opacity-90 hover:opacity-100 transition-colors'
+            ? 'font-medium shadow-sm'
+            : 'hover:bg-white/10 opacity-90 hover:opacity-100 transition-colors'
         );
         const activeRowStyle: React.CSSProperties = isActive
           ? {
-              backgroundColor: 'var(--primary-light, #ffedd5)',
-              color: 'var(--primary, #c2410c)',
-              borderLeftColor: !isCollapsed ? 'var(--primary, #f97316)' : undefined,
+              backgroundColor: 'var(--primary, #2563eb)',
+              color: 'var(--sidebar-text, #ffffff)',
             }
           : {
-              color: 'var(--sidebar-text, inherit)',
+              color: 'var(--sidebar-text, #ffffff)',
             };
         const labelWrapClass = cn(
           'flex min-w-0 flex-1 items-center gap-3',
@@ -695,6 +739,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
 
         return (
           <div key={item.href} className="space-y-0.5">
+            {sectionHeader}
             <div
               className={cn(
                 'group relative flex w-full items-center',
@@ -722,41 +767,25 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                     <Icon
                       className="h-5 w-5 shrink-0 transition-colors duration-200"
                       style={{
-                        color: isActive ? 'var(--primary, #ea580c)' : 'var(--sidebar-muted, #64748b)',
+                        color: isActive ? 'var(--sidebar-text, #ffffff)' : 'var(--sidebar-muted, #94a3b8)',
                       }}
                     />
                   )}
 
                   <div className={labelWrapClass}>
-                    <span className="truncate">{item.label}</span>
-                    {item.badge && (
-                      <span
-                        className="ml-auto inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full"
-                        style={
-                          isActive
-                            ? {
-                                backgroundColor: 'var(--primary-light, #ffedd5)',
-                                color: 'var(--primary, #c2410c)',
-                              }
-                            : {
-                                backgroundColor: 'var(--surface, #f1f5f9)',
-                                color: 'var(--text-secondary, #64748b)',
-                              }
-                        }
-                      >
-                        {item.badge}
-                      </span>
-                    )}
+                    <span className="truncate text-sm font-medium">{item.label}</span>
                   </div>
 
                   {!isCollapsed && (
-                    <ChevronDownIcon
+                    <ChevronDown
+                      size={15}
+                      strokeWidth={2}
                       className={cn(
-                        'ml-auto h-3.5 w-3.5 shrink-0 transition-transform duration-200',
+                        'ml-auto shrink-0 transition-transform duration-200',
                         isGroupOpen ? 'rotate-180' : 'rotate-0'
                       )}
                       style={{
-                        color: isActive ? 'var(--primary, #ea580c)' : 'var(--sidebar-muted, #94a3b8)',
+                        color: isActive ? 'var(--sidebar-text, #ffffff)' : 'var(--sidebar-muted, #94a3b8)',
                       }}
                     />
                   )}
@@ -772,41 +801,22 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                     <Icon
                       className="h-5 w-5 shrink-0 transition-colors duration-200"
                       style={{
-                        color: isActive ? 'var(--primary, #ea580c)' : 'var(--sidebar-muted, #64748b)',
+                        color: isActive ? 'var(--sidebar-text, #ffffff)' : 'var(--sidebar-muted, #94a3b8)',
                       }}
                     />
                   )}
 
                   <div className={labelWrapClass}>
-                    <span className="truncate">{item.label}</span>
-                    {item.badge && (
-                      <span
-                        className="ml-auto inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full"
-                        style={
-                          isActive
-                            ? {
-                                backgroundColor: 'var(--primary-light, #ffedd5)',
-                                color: 'var(--primary, #c2410c)',
-                              }
-                            : {
-                                backgroundColor: 'var(--surface, #f1f5f9)',
-                                color: 'var(--text-secondary, #64748b)',
-                              }
-                        }
-                      >
-                        {item.badge}
-                      </span>
-                    )}
+                    <span className="truncate text-sm font-medium">{item.label}</span>
                   </div>
                 </Link>
               )}
             </div>
             {hasChildren && isGroupOpen && (
-              <div className={cn('space-y-0.5 relative', isCollapsed ? 'hidden' : 'pl-4')}>
-                {/* Connection line for nested items */}
+              <div className={cn('space-y-1 relative mt-1', isCollapsed ? 'hidden' : 'pl-4')}>
                 <div 
-                  className="absolute left-[26px] top-0 bottom-0 w-px" 
-                  style={{ backgroundColor: 'var(--border, #e2e8f0)' }}
+                  className="absolute left-[24px] top-0 bottom-0 w-px" 
+                  style={{ backgroundColor: 'var(--border, rgba(255, 255, 255, 0.1))' }}
                 />
                 {renderNavItems(item.children!, level + 1)}
               </div>
@@ -815,120 +825,73 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
         );
       });
     },
-    [isCollapsed, openGroups, pathname, toggleGroup]
+    [isCollapsed, openGroups, pathname, toggleGroup, getItemSection]
   );
 
   const renderSidebar = (variant: 'desktop' | 'mobile' = 'desktop') => {
     const safeUserName = (userName || 'Super Admin').replace(/pydah/gi, 'Campo');
     const safeRoleName = roleName ? roleName.replace(/pydah/gi, 'Campo') : roleName;
     const safeRole = role ? role.replace(/pydah/gi, 'Campo') : role;
-    const workspaceLine =
-      safeRole && safeRoleName !== safeRole ? `${safeRole} Space` : !safeRoleName && safeRole ? `${safeRole} Space` : null;
     const collapsedProfileTitle = [safeUserName, safeRoleName].filter(Boolean).join(' · ') || safeUserName || 'User';
 
     return (
     <aside
       className={cn(
-        'relative flex flex-col overflow-hidden transition-[width] duration-300',
+        'relative flex flex-col overflow-hidden transition-[width] duration-300 font-sans',
         'border-r shadow-sm',
-        isCollapsed ? 'w-[72px]' : 'w-64',
+        isCollapsed ? 'w-20' : 'w-64',
         variant === 'desktop'
           ? 'h-screen flex-shrink-0 z-10'
           : 'h-full rounded-2xl border'
       )}
       style={{
-        backgroundColor: 'var(--sidebar, #ffffff)',
-        borderColor: 'var(--border, #e2e8f0)',
-        color: 'var(--sidebar-text, #1c1917)',
+        backgroundColor: 'var(--sidebar, #0f172a)',
+        borderColor: 'var(--border, rgba(255, 255, 255, 0.1))',
+        color: 'var(--sidebar-text, #ffffff)',
       }}
     >
-      {/* Sidebar Header */}
+      {/* Top Header */}
       <div 
-        className="flex flex-shrink-0 flex-col border-b"
+        className="flex flex-shrink-0 flex-col items-center justify-center text-center pt-6 pb-4 border-b px-4"
         style={{
-          backgroundColor: 'var(--sidebar, #ffffff)',
-          borderColor: 'var(--border, #e2e8f0)',
+          backgroundColor: 'var(--sidebar, #0f172a)',
+          borderColor: 'var(--border, rgba(255, 255, 255, 0.1))',
         }}
       >
-        <div className="flex items-center justify-between px-4 py-5">
-          {!isCollapsed && (
-            <>
-              <Link href="/" className="flex items-center gap-2.5 min-w-0 group">
-                <div 
-                  className="relative flex items-center justify-center w-10 h-10 rounded-xl shadow-sm overflow-hidden flex-shrink-0 transition-transform group-hover:scale-105"
-                  style={{
-                    backgroundColor: 'rgba(var(--primary-rgb, 234, 88, 12), 0.1)',
-                  }}
-                >
-                  <Image
-                    src="/campo-logos/icon-192.png"
-                    alt="Campo Logo"
-                    width={32}
-                    height={32}
-                    className="object-contain dark:invert"
-                    priority
-                  />
-                </div>
-                <div className="space-y-0.5 min-w-0">
-                  <Image
-                    src="/campo-logos/campo_logo_transparent_hq.png"
-                    alt="Campo"
-                    width={112}
-                    height={32}
-                    className="h-7 w-auto object-contain dark:invert"
-                    priority
-                  />
-                </div>
-              </Link>
-              {/* Notification Bell in Sidebar Header */}
-              <div className="flex-shrink-0">
-                <div 
-                  className="flex items-center justify-center w-10 h-10 rounded-xl"
-                  style={{
-                    color: 'var(--sidebar-text, var(--primary, #ea580c))',
-                  }}
-                >
-                  <NotificationBell />
-                </div>
-              </div>
-            </>
-          )}
-          {isCollapsed && variant === 'desktop' && (
-            <div className="flex flex-col items-center gap-4 w-full">
-              <Link
-                href="/"
-                className="relative flex h-10 w-10 items-center justify-center rounded-xl shadow-sm overflow-hidden transition-transform hover:scale-105"
-                style={{
-                  backgroundColor: 'rgba(var(--primary-rgb, 234, 88, 12), 0.1)',
-                }}
-                title="Campo"
-              >
-                <Image
-                  src="/campo-logos/icon-192.png"
-                  alt="Campo"
-                  width={30}
-                  height={30}
-                  className="object-contain dark:invert"
-                  priority
-                />
-              </Link>
-              {/* Notification Bell in Collapsed Sidebar */}
-              <div 
-                className="flex h-10 w-10 items-center justify-center rounded-xl"
-                style={{
-                  color: 'var(--sidebar-text, var(--primary, #ea580c))',
-                }}
-              >
-                <NotificationBell />
-              </div>
-            </div>
-          )}
-        </div>
+        {!isCollapsed ? (
+          <div className="flex flex-col items-center justify-center">
+            <Image
+              src="/campo-logos/campo_logo_transparent_hq.png"
+              alt="Campo"
+              width={120}
+              height={28}
+              className="h-7 w-auto max-w-[120px] object-contain"
+              priority
+            />
+            <p 
+              className="text-xs font-medium mt-1 truncate"
+              style={{ color: 'var(--sidebar-muted, #94a3b8)' }}
+            >
+              Admission Management
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-1">
+            <Image
+              src="/campo-logos/icon-192.png"
+              alt="Campo"
+              width={28}
+              height={28}
+              className="h-7 w-7 object-contain"
+              priority
+            />
+          </div>
+        )}
       </div>
 
       <nav
         className={cn(
-          'flex-1 min-h-0 space-y-0.5 px-3 py-3',
+          'flex-1 min-h-0 space-y-1 px-3 py-3',
           variant === 'desktop' ? 'overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700' : 'overflow-y-auto pb-4'
         )}
       >
@@ -937,102 +900,98 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
 
       {/* Profile and Logout at bottom of sidebar */}
       <div 
-        className="flex-shrink-0 border-t px-3 py-3"
-        style={{ borderColor: 'var(--border, #e2e8f0)' }}
+        className="flex-shrink-0 p-3 border-t"
+        style={{ borderColor: 'var(--border, rgba(255, 255, 255, 0.1))' }}
       >
         {!isCollapsed ? (
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-3 overflow-hidden">
+          <div 
+            className="flex items-center justify-between gap-2.5 p-2.5 rounded-2xl border transition-all"
+            style={{
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderColor: 'var(--border, rgba(255, 255, 255, 0.1))',
+            }}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
               <div 
-                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-white text-sm font-bold shadow-sm"
-                style={{ backgroundColor: 'var(--primary, #ea580c)' }}
+                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-slate-900 text-sm font-bold shadow-sm"
+                style={{ backgroundColor: '#ffffff' }}
               >
-                {(safeUserName || 'SA').slice(0, 1).toUpperCase()}
+                {(safeUserName || 'C').slice(0, 1).toUpperCase()}
               </div>
-              <div className="flex flex-col min-w-0 gap-0.5">
+              <div className="flex flex-col min-w-0">
                 <p 
-                  className="truncate text-sm font-semibold"
-                  style={{ color: 'var(--sidebar-text, var(--text-primary, #1c1917))' }}
+                  className="truncate text-sm font-semibold leading-tight"
+                  style={{ color: 'var(--sidebar-text, #ffffff)' }}
                   title={safeUserName}
                 >
                   {safeUserName}
                 </p>
-                {safeRoleName ? (
-                  <p
-                    className="truncate text-xs font-medium"
-                    style={{ color: 'var(--sidebar-muted, var(--text-secondary, #64748b))' }}
-                    title={safeRoleName}
-                  >
-                    {safeRoleName}
-                  </p>
-                ) : null}
-                {workspaceLine ? (
-                  <p
-                    className="truncate text-[10px] font-bold uppercase tracking-[0.1em]"
-                    style={{ color: 'var(--sidebar-muted, var(--text-muted, #94a3b8))' }}
-                    title={workspaceLine}
-                  >
-                    {workspaceLine}
-                  </p>
-                ) : !roleName && !role ? (
-                  <p 
-                    className="truncate text-[10px] font-bold uppercase tracking-[0.1em]"
-                    style={{ color: 'var(--sidebar-muted, var(--text-muted, #94a3b8))' }}
-                  >
-                    Workspace
-                  </p>
-                ) : null}
+                <p
+                  className="truncate text-xs font-medium leading-tight mt-0.5"
+                  style={{ color: 'var(--sidebar-muted, #94a3b8)' }}
+                  title={safeRoleName || 'User'}
+                >
+                  {safeRoleName || 'User'}
+                </p>
               </div>
             </div>
             <button
               type="button"
               onClick={handleLogout}
-              className="group flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors hover:bg-red-50 dark:hover:bg-red-950/30"
+              className="group flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors hover:bg-white/10"
               aria-label="Logout"
               title="Logout"
             >
-              <LogoutIcon 
-                className="h-5 w-5 transition-colors group-hover:text-[var(--danger,#dc2626)]" 
-                style={{ color: 'var(--sidebar-muted, #64748b)' }}
+              <LogOut 
+                size={16}
+                className="transition-colors group-hover:text-red-400" 
+                style={{ color: 'var(--sidebar-muted, #94a3b8)' }}
               />
             </button>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-center gap-3 py-2">
             <div
-              className="flex h-10 w-10 items-center justify-center rounded-full text-white text-sm font-bold shadow-sm"
-              style={{ backgroundColor: 'var(--primary, #ea580c)' }}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-slate-900 text-sm font-bold shadow-sm"
+              style={{ backgroundColor: '#ffffff' }}
               title={collapsedProfileTitle}
             >
-              {(safeUserName || 'SA').slice(0, 1).toUpperCase()}
+              {(safeUserName || 'C').slice(0, 1).toUpperCase()}
             </div>
             <button
               type="button"
               onClick={handleLogout}
-              className="group flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg transition-colors hover:bg-red-50 dark:hover:bg-red-950/30"
+              className="group flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg transition-colors hover:bg-white/10"
               aria-label="Logout"
               title="Logout"
             >
-              <LogoutIcon 
-                className="h-5 w-5 transition-colors group-hover:text-[var(--danger,#dc2626)]" 
-                style={{ color: 'var(--sidebar-muted, #64748b)' }}
+              <LogOut 
+                size={16}
+                className="transition-colors group-hover:text-red-400" 
+                style={{ color: 'var(--sidebar-muted, #94a3b8)' }}
               />
             </button>
           </div>
         )}
       </div>
 
+      {/* Floating Circular Collapse Button on right border */}
       <button
         type="button"
-        className="absolute top-[4.25rem] -right-3 hidden h-8 w-8 items-center justify-center rounded-full border-2 bg-white shadow-md transition-all hover:scale-105 focus:outline-none dark:bg-slate-800 lg:flex z-10 cursor-pointer"
+        className="absolute -right-3 top-[106px] z-50 hidden h-6 w-6 items-center justify-center rounded-full border shadow-md transition-all hover:scale-105 focus:outline-none lg:flex cursor-pointer"
         style={{
+          backgroundColor: 'var(--surface, #ffffff)',
           borderColor: 'var(--border, #e2e8f0)',
           color: 'var(--sidebar-muted, #64748b)',
         }}
         onClick={() => setIsCollapsed((prev) => !prev)}
         aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
-        <CollapseIcon className={cn('h-4 w-4 transition-transform', isCollapsed ? 'rotate-180' : 'rotate-0')} />
+        {isCollapsed ? (
+          <ChevronRight size={14} strokeWidth={2.5} />
+        ) : (
+          <ChevronLeft size={14} strokeWidth={2.5} />
+        )}
       </button>
     </aside>
     );

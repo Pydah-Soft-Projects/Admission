@@ -286,17 +286,19 @@ export function AdmissionWorkflowStepButtons({
             });
 
         const buttonClass = cn(
-          // Solid fills + opaque borders — outline-only orange was hard to see on older displays.
-          'shrink-0 h-8 min-h-[32px] px-3 py-1 text-xs font-semibold border-2 shadow-sm',
+          'shrink-0 h-8 min-h-[32px] px-3 py-1 text-xs font-semibold border shadow-sm transition-all',
           isActive
-            ? '!bg-[#c2410c] !text-white !border-[#9a3412] hover:!bg-[#9a3412] hover:!text-white focus:!ring-[#fdba74]'
-            : '!bg-white !text-slate-900 !border-slate-500 hover:!bg-slate-100 hover:!text-slate-900 hover:!border-slate-700 focus:!ring-slate-300 dark:!bg-slate-800 dark:!text-slate-50 dark:!border-slate-400 dark:hover:!bg-slate-700'
+            ? '!text-white border-transparent hover:opacity-90'
+            : '!bg-white !text-slate-800 !border-slate-300 hover:!bg-slate-50 dark:!bg-slate-800 dark:!text-slate-100 dark:!border-slate-600'
         );
+        const buttonStyle: React.CSSProperties | undefined = isActive
+          ? { backgroundColor: 'var(--primary, #ea580c)', borderColor: 'var(--primary, #ea580c)', color: '#ffffff' }
+          : undefined;
 
         if (href) {
           return (
             <Link key={meta.step} href={href} title={title}>
-              <Button variant={isActive ? 'primary' : 'outline'} size="sm" className={buttonClass}>
+              <Button variant={isActive ? 'primary' : 'outline'} size="sm" className={buttonClass} style={buttonStyle}>
                 {meta.label}
               </Button>
             </Link>
@@ -309,6 +311,7 @@ export function AdmissionWorkflowStepButtons({
             variant={isActive ? 'primary' : 'outline'}
             size="sm"
             className={buttonClass}
+            style={buttonStyle}
             disabled={!enabled}
             title={title}
             onClick={() => handleStep(meta.step)}
@@ -364,7 +367,7 @@ export function AdmissionWorkflowOverview({
                 className={cn(
                   'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold',
                   isActive
-                    ? 'bg-[#ea580c] text-white'
+                    ? 'bg-[var(--primary)] text-white'
                     : enabled
                       ? 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-100'
                       : 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
@@ -376,7 +379,7 @@ export function AdmissionWorkflowOverview({
                 <p
                   className={cn(
                     'text-sm font-semibold',
-                    isActive ? 'text-[#ea580c] dark:text-orange-300' : 'text-slate-900 dark:text-slate-100'
+                    isActive ? 'text-[var(--primary)]' : 'text-slate-900 dark:text-slate-100'
                   )}
                 >
                   {meta.label} — {meta.title}
@@ -391,7 +394,7 @@ export function AdmissionWorkflowOverview({
           const itemClass = cn(
             'flex gap-3 rounded-xl border p-3 transition',
             isActive
-              ? 'border-[#ea580c]/40 bg-orange-50/50 dark:border-orange-900/40 dark:bg-orange-950/20'
+              ? 'border-[var(--primary)]/40 bg-[var(--primary-light)]/40 dark:border-[var(--primary)]/40 dark:bg-[var(--primary-light)]/20'
               : 'border-slate-100 bg-slate-50/50 dark:border-slate-800 dark:bg-slate-800/30',
             !enabled && 'opacity-60'
           );
@@ -401,7 +404,7 @@ export function AdmissionWorkflowOverview({
               <li key={meta.step}>
                 <Link
                   href={href}
-                  className={cn(itemClass, enabled && 'hover:border-[#ea580c]/30 hover:bg-orange-50/80')}
+                  className={cn(itemClass, enabled && 'hover:border-[var(--primary)]/30 hover:bg-[var(--primary-light)]/80')}
                   title={stepDisabledTitle(meta.step, {
                     activeStep,
                     surface,
@@ -424,7 +427,7 @@ export function AdmissionWorkflowOverview({
                 disabled={!enabled}
                 className={cn(
                   itemClass,
-                  enabled && 'w-full text-left hover:border-[#ea580c]/30 hover:bg-orange-50/80 disabled:cursor-not-allowed'
+                  enabled && 'w-full text-left hover:border-[var(--primary)]/30 hover:bg-[var(--primary-light)]/80 disabled:cursor-not-allowed'
                 )}
                 title={stepDisabledTitle(meta.step, stepProps)}
                 onClick={() => {

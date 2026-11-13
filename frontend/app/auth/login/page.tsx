@@ -266,11 +266,11 @@ function LoginPageContent() {
 
           <div className="text-center mb-8 pt-4 flex flex-col items-center">
             <Image
-              src="/campo-logos/campo_logo_transparent_hq.png"
+              src="/campo-logos/campo-dark-logo.png"
               alt="Campo"
               width={130}
               height={38}
-              className="h-9 w-auto object-contain mb-3"
+              className="h-9 w-auto object-contain mb-3 rounded-md shadow-xs"
               priority
             />
             <h2 className="text-2xl font-bold tracking-tight">

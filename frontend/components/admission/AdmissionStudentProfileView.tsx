@@ -68,7 +68,7 @@ function MaskedPhoneField({
           <button
             type="button"
             onClick={() => onToggle(phoneKey)}
-            className="text-[10px] font-medium text-violet-600 hover:text-violet-700 dark:text-violet-400"
+            className="text-[10px] font-medium text-[var(--primary)] hover:opacity-80"
           >
             {revealed ? 'Hide' : 'Show'}
           </button>
@@ -155,7 +155,7 @@ function ProfilePhoto({
     <div className="flex w-full flex-col items-center gap-1.5">
       <div
         className={cn(
-          'overflow-hidden rounded-xl border-2 border-violet-100 bg-slate-100 dark:border-violet-900/40 dark:bg-slate-800',
+          'overflow-hidden rounded-xl border-2 border-[var(--primary)]/20 bg-slate-100 dark:border-[var(--primary)]/30 dark:bg-slate-800',
           frameClass
         )}
       >
@@ -228,11 +228,11 @@ function ProfileDetailCard({
     >
       <div className="flex items-center gap-2">
         {icon ? (
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-950/50 dark:text-violet-300">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--primary-light)]/60 text-[var(--primary)] dark:bg-[var(--primary-light)]/20">
             {icon}
           </div>
         ) : null}
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">
           {title}
         </h3>
       </div>
@@ -478,7 +478,7 @@ export function AdmissionStudentProfileView({
                     <button
                       type="button"
                       onClick={() => onToggleAadhaar('student')}
-                      className="text-[10px] font-medium text-violet-600 hover:text-violet-700 dark:text-violet-400"
+                      className="text-[10px] font-medium text-[var(--primary)] hover:opacity-80"
                     >
                       {revealedAadhaars.student ? 'Hide' : 'Show'}
                     </button>
@@ -531,7 +531,7 @@ export function AdmissionStudentProfileView({
                       <button
                         type="button"
                         onClick={() => onToggleAadhaar('father')}
-                        className="text-[10px] font-medium text-violet-600 hover:text-violet-700 dark:text-violet-400"
+                        className="text-[10px] font-medium text-[var(--primary)] hover:opacity-80"
                       >
                         {revealedAadhaars.father ? 'Hide' : 'Show'}
                       </button>
@@ -564,7 +564,7 @@ export function AdmissionStudentProfileView({
                       <button
                         type="button"
                         onClick={() => onToggleAadhaar('mother')}
-                        className="text-[10px] font-medium text-violet-600 hover:text-violet-700 dark:text-violet-400"
+                        className="text-[10px] font-medium text-[var(--primary)] hover:opacity-80"
                       >
                         {revealedAadhaars.mother ? 'Hide' : 'Show'}
                       </button>
@@ -666,7 +666,7 @@ export function AdmissionStudentProfileView({
                       <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                         {block.header}
                         {relative.isGuardian ? (
-                          <span className="ml-2 rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-violet-700 dark:bg-violet-950/60 dark:text-violet-300">
+                          <span className="ml-2 rounded bg-[var(--primary-light)]/60 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[var(--primary)] dark:bg-[var(--primary-light)]/20">
                             Guardian
                           </span>
                         ) : null}

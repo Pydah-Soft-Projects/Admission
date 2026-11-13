@@ -958,7 +958,7 @@ export function AdmissionStepThreeBusHostelPanel({
                 className={cn(
                   'rounded-lg px-4 py-2 text-sm font-semibold capitalize transition',
                   isActive
-                    ? 'bg-[#ea580c] text-white shadow-sm'
+                    ? 'bg-[var(--primary)] text-white shadow-sm'
                     : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800',
                   !canEdit && !isActive && 'opacity-50'
                 )}
@@ -1111,7 +1111,7 @@ export function AdmissionStepThreeBusHostelPanel({
                   }
                 }}
                 onFocus={() => setShowStageSuggestions(true)}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 text-sm text-slate-900 placeholder-slate-400 shadow-sm transition focus:border-[#ea580c] focus:outline-none focus:ring-2 focus:ring-[#ea580c]/20 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-orange-500"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 pr-8 text-sm text-slate-900 placeholder-slate-400 shadow-sm transition focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-[var(--primary)]"
               />
               {stageQuery ? (
                 <button
@@ -1154,7 +1154,7 @@ export function AdmissionStepThreeBusHostelPanel({
                             className={cn(
                               'w-full text-left px-4 py-2.5 flex items-start justify-between gap-3 transition-colors',
                               isSelected
-                                ? 'bg-orange-50 dark:bg-orange-950/30'
+                                ? 'bg-[var(--primary-light)]/40 dark:bg-[var(--primary-light)]/20'
                                 : isFull
                                   ? 'opacity-50 cursor-not-allowed'
                                   : 'hover:bg-slate-50 dark:hover:bg-slate-800'
@@ -1221,7 +1221,7 @@ export function AdmissionStepThreeBusHostelPanel({
           {/* Auto-filled route context — shown after a stage is selected */}
           {selectedRouteId && value.stageName ? (
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-50 border border-orange-200 px-3 py-1 text-xs font-semibold text-orange-800 dark:bg-orange-950/30 dark:border-orange-800/50 dark:text-orange-300">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--primary-light)]/40 border border-[var(--primary)]/30 px-3 py-1 text-xs font-semibold text-[var(--primary)]">
                 <span>🚌</span>
                 Route: {value.routeName || selectedRouteId}
               </span>

@@ -82,22 +82,12 @@ export default function Home() {
 
       <header className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-6 py-5">
         <div className="flex items-center gap-2.5">
-          <div className="relative flex items-center justify-center h-10 w-10 rounded-xl bg-white/10 backdrop-blur-sm p-1.5 border border-white/20">
-            <Image
-              src="/campo-logos/icon-192.png"
-              alt="Campo Logo"
-              width={32}
-              height={32}
-              className="object-contain brightness-0 invert"
-              priority
-            />
-          </div>
           <Image
-            src="/campo-logos/campo_logo_transparent_hq.png"
-            alt="Campo"
-            width={100}
-            height={28}
-            className="h-7 w-auto object-contain brightness-0 invert"
+            src="/campo-logos/campo-dark-logo.png"
+            alt="Campo Logo"
+            width={130}
+            height={38}
+            className="h-9 w-auto object-contain rounded-md shadow-sm"
             priority
           />
         </div>
@@ -111,7 +101,7 @@ export default function Home() {
           {/* Badge */}
           <p className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 backdrop-blur-md px-4 py-1.5 text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-white mb-6 sm:mb-8">
             <span className="h-1.5 w-1.5 rounded-full bg-orange-500 animate-pulse" />
-            Admissions &amp; Enquiry Managementttttt
+            Admissions &amp; Enquiry Management
           </p>
 
           {/* Headline */}

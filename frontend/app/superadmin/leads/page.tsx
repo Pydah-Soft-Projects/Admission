@@ -1429,20 +1429,23 @@ export default function LeadsPage() {
                   <article
                     key={`mobile-lead-${lead._id}`}
                     onClick={() => router.push(`/superadmin/leads/${lead._id}`)}
-                    className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm transition-all duration-200 hover:shadow-md hover:border-orange-200/80 cursor-pointer dark:border-slate-700 dark:bg-slate-900"
+                    className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm transition-all duration-200 hover:shadow-md hover:border-[var(--primary)]/30 cursor-pointer dark:border-slate-700 dark:bg-slate-900"
                   >
-                    <div className="h-0.5 w-full bg-slate-100 group-hover:bg-orange-100 transition-colors dark:bg-slate-800" aria-hidden />
+                    <div className="h-0.5 w-full bg-slate-100 group-hover:bg-[var(--primary)]/15 transition-colors dark:bg-slate-800" aria-hidden />
                     <div className="relative flex flex-1 flex-col p-3">
                       <div className="flex items-start justify-between gap-2 min-w-0">
                         <div className="flex items-start gap-2 min-w-0 flex-1">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-400 text-white shadow-sm ring-1 ring-orange-600/20 font-semibold text-sm uppercase">
+                          <div
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white shadow-sm ring-1 ring-black/10 font-semibold text-sm uppercase"
+                            style={{ backgroundColor: 'var(--primary, #ea580c)' }}
+                          >
                             {(lead.name || '?').charAt(0)}
                           </div>
                           <div className="min-w-0 flex-1">
                             <Link
                               href={`/superadmin/leads/${lead._id}`}
                               onClick={(e) => e.stopPropagation()}
-                              className="block truncate text-sm font-semibold text-slate-900 underline underline-offset-2 decoration-orange-500 hover:text-orange-600 dark:text-slate-100 dark:decoration-orange-400 dark:hover:text-orange-400"
+                              className="block truncate text-sm font-semibold text-slate-900 underline underline-offset-2 decoration-[var(--primary)] hover:text-[var(--primary)] dark:text-slate-100"
                             >
                               {lead.name || '—'}
                             </Link>

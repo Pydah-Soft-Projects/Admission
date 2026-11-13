@@ -67,7 +67,7 @@ export const ThemeToggle: React.FC = () => {
       />
       <div
         className={`relative w-14 h-7 rounded-full transition-colors duration-300 ${
-          isDark ? 'bg-orange-600' : 'bg-gray-200'
+          isDark ? 'bg-[var(--primary)]' : 'bg-gray-200'
         }`}
       >
         {/* Toggle Button */}

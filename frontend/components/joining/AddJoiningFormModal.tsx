@@ -101,7 +101,7 @@ function applyExistingLeadToForm(
 }
 
 const selectClassName =
-  'w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 text-xs font-medium text-slate-900 shadow-sm transition hover:bg-white hover:border-slate-300 focus:border-orange-500/50 focus:outline-none focus:ring-4 focus:ring-orange-500/10 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-100 dark:hover:bg-slate-900 dark:hover:border-slate-700 dark:focus:border-orange-500/50 dark:focus:ring-orange-900/20';
+  'w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 text-xs font-medium text-slate-900 shadow-sm transition hover:bg-white hover:border-slate-300 focus:border-[var(--primary)]/50 focus:outline-none focus:ring-4 focus:ring-[var(--primary)]/10 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-100 dark:hover:bg-slate-900 dark:hover:border-slate-700 dark:focus:border-[var(--primary)]/50 dark:focus:ring-[var(--primary)]/20';
 
 export function AddJoiningFormModal({ open, onClose, defaultReference1 = '', readOnlyReference = false }: Props) {
   const queryClient = useQueryClient();
