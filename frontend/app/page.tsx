@@ -81,19 +81,29 @@ export default function Home() {
       </div>
 
       <header className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-6 py-5">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
+          <div className="relative flex items-center justify-center h-10 w-10 rounded-xl bg-white/10 backdrop-blur-sm p-1.5 border border-white/20">
+            <Image
+              src="/campo-logos/icon-192.png"
+              alt="Campo Logo"
+              width={32}
+              height={32}
+              className="object-contain brightness-0 invert"
+              priority
+            />
+          </div>
           <Image
-            src="/Lead Tracker.png"
-            alt="Lead Tracker"
-            width={36}
-            height={36}
-            className="h-9 w-9 rounded-xl object-contain bg-white/10 backdrop-blur-sm p-1"
+            src="/campo-logos/campo_logo_transparent_hq.png"
+            alt="Campo"
+            width={100}
+            height={28}
+            className="h-7 w-auto object-contain brightness-0 invert"
+            priority
           />
-          <span className="text-lg font-semibold text-white/90">Lead Tracker</span>
         </div>
-        {/* <Link href="/auth/login" className="text-sm font-medium text-gray-300 hover:text-orange-400 transition-colors">
+        <Link href="/auth/login" className="text-sm font-medium text-gray-200 hover:text-orange-400 transition-colors">
           Sign in
-        </Link> */}
+        </Link>
       </header>
 
       <main className="relative z-10 flex flex-1 flex-col items-center justify-center px-4 py-16 sm:py-32">

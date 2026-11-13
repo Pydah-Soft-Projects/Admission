@@ -3,11 +3,45 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Campo",
-  description: "Track your leads and opportunities",
+  title: {
+    default: "Campo",
+    template: "%s | Campo",
+  },
+  description: "Campo - Admission & Leads Management System",
+  applicationName: "Campo",
   icons: {
-    icon: "/Lead Tracker.png",
-    apple: "/Lead Tracker.png",
+    icon: [
+      { url: "/campo-logos/favicon.ico" },
+      { url: "/campo-logos/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/campo-logos/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/campo-logos/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/campo-logos/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [
+      { url: "/campo-logos/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+    shortcut: ["/campo-logos/favicon.ico"],
+  },
+  openGraph: {
+    title: "Campo - Admission & Leads Management",
+    description: "Track your leads, admissions, and opportunities with Campo.",
+    siteName: "Campo",
+    images: [
+      {
+        url: "/campo-logos/og-image.png",
+        width: 800,
+        height: 800,
+        alt: "Campo",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Campo",
+    description: "Campo - Admission & Leads Management System",
+    images: ["/campo-logos/og-image.png"],
   },
 };
 
@@ -37,7 +71,13 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <link rel="icon" href="/campo-logos/favicon.ico" sizes="any" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/campo-logos/favicon-16x16.png" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/campo-logos/favicon-32x32.png" />
+        <link rel="apple-touch-icon" href="/campo-logos/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
+        <meta name="apple-mobile-web-app-title" content="Campo" />
+        <meta name="application-name" content="Campo" />
         <meta name="theme-color" content="#000000" />
         {/* Centralized Theme Runtime Loader */}
         <Script

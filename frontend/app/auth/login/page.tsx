@@ -264,11 +264,19 @@ function LoginPageContent() {
             <Home className="w-5 h-5 transform group-hover:scale-110" />
           </Link>
 
-          <div className="text-center mb-8 pt-4">
-            <h2 className="text-3xl font-bold tracking-tight">
+          <div className="text-center mb-8 pt-4 flex flex-col items-center">
+            <Image
+              src="/campo-logos/campo_logo_transparent_hq.png"
+              alt="Campo"
+              width={130}
+              height={38}
+              className="h-9 w-auto object-contain mb-3"
+              priority
+            />
+            <h2 className="text-2xl font-bold tracking-tight">
               <span className="text-orange-600">Admissions</span> <span className="text-black">Portal</span>
             </h2>
-            <p className="mt-2 text-sm text-slate-600 font-medium">Sign in to your account</p>
+            <p className="mt-1 text-sm text-slate-600 font-medium">Sign in to your account</p>
           </div>
 
           {error && (

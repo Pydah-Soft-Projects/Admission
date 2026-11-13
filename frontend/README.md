@@ -1,8 +1,8 @@
-# Lead Tracker - Frontend
+# Campo - Admissions & Leads Management (Frontend)
 
 ## Project Setup
 
-This is the frontend application for the Lead Tracker system built with Next.js 14+ (App Router), TypeScript, and Tailwind CSS.
+This is the frontend application for Campo built with Next.js 14+ (App Router), TypeScript, and Tailwind CSS.
 
 ## Features Implemented
 

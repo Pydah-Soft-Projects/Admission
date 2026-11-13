@@ -853,30 +853,33 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
         <div className="flex items-center justify-between px-4 py-5">
           {!isCollapsed && (
             <>
-              <div className="flex items-center gap-3">
+              <Link href="/" className="flex items-center gap-2.5 min-w-0 group">
                 <div 
-                  className="relative flex items-center justify-center w-10 h-10 rounded-xl shadow-sm overflow-hidden"
+                  className="relative flex items-center justify-center w-10 h-10 rounded-xl shadow-sm overflow-hidden flex-shrink-0 transition-transform group-hover:scale-105"
                   style={{
-                    backgroundColor: 'rgba(var(--primary-rgb, 234, 88, 12), 0.15)',
-                    color: 'var(--primary, #ea580c)',
+                    backgroundColor: 'rgba(var(--primary-rgb, 234, 88, 12), 0.1)',
                   }}
                 >
                   <Image
-                    src="/Lead Tracker.png"
+                    src="/campo-logos/icon-192.png"
                     alt="Campo Logo"
-                    fill
-                    className="object-cover"
+                    width={32}
+                    height={32}
+                    className="object-contain dark:invert"
+                    priority
                   />
                 </div>
                 <div className="space-y-0.5 min-w-0">
-                  <p 
-                    className="text-lg font-bold truncate"
-                    style={{ color: 'var(--sidebar-text, var(--text-primary, #1c1917))' }}
-                  >
-                    Campo
-                  </p>
+                  <Image
+                    src="/campo-logos/campo_logo_transparent_hq.png"
+                    alt="Campo"
+                    width={112}
+                    height={32}
+                    className="h-7 w-auto object-contain dark:invert"
+                    priority
+                  />
                 </div>
-              </div>
+              </Link>
               {/* Notification Bell in Sidebar Header */}
               <div className="flex-shrink-0">
                 <div 
@@ -892,14 +895,23 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
           )}
           {isCollapsed && variant === 'desktop' && (
             <div className="flex flex-col items-center gap-4 w-full">
-              <div 
-                className="flex h-10 w-10 items-center justify-center rounded-xl"
+              <Link
+                href="/"
+                className="relative flex h-10 w-10 items-center justify-center rounded-xl shadow-sm overflow-hidden transition-transform hover:scale-105"
                 style={{
-                  color: 'var(--sidebar-text, var(--primary, #ea580c))',
+                  backgroundColor: 'rgba(var(--primary-rgb, 234, 88, 12), 0.1)',
                 }}
+                title="Campo"
               >
-                <AcademicIcon className="w-6 h-6" />
-              </div>
+                <Image
+                  src="/campo-logos/icon-192.png"
+                  alt="Campo"
+                  width={30}
+                  height={30}
+                  className="object-contain dark:invert"
+                  priority
+                />
+              </Link>
               {/* Notification Bell in Collapsed Sidebar */}
               <div 
                 className="flex h-10 w-10 items-center justify-center rounded-xl"

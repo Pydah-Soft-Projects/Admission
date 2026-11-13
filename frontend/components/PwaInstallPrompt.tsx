@@ -53,10 +53,10 @@ export default function PwaInstallPrompt() {
         <div className="fixed bottom-0 left-0 right-0 z-50 p-4 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 shadow-lg flex items-center justify-between gap-4 animate-in slide-in-from-bottom-full duration-300">
             <div className="flex items-center gap-3">
                 <div className="bg-zinc-100 dark:bg-zinc-800 p-2 rounded-lg">
-                    <img src="/Lead Tracker.png" alt="App Icon" className="w-8 h-8 object-contain" />
+                    <img src="/campo-logos/icon-192.png" alt="Campo App" className="w-8 h-8 object-contain dark:invert" />
                 </div>
                 <div>
-                    <h3 className="font-semibold text-sm text-zinc-900 dark:text-zinc-100">Install App</h3>
+                    <h3 className="font-semibold text-sm text-zinc-900 dark:text-zinc-100">Install Campo</h3>
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">Add to your home screen for quick access</p>
                 </div>
             </div>
