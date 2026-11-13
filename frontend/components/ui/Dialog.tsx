@@ -63,11 +63,15 @@ export const DialogContent = ({
         role="dialog"
         aria-modal="true"
         className={cn(
-          'relative z-[201] flex max-h-[min(90vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl',
+          'relative z-[201] flex max-h-[min(90vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-xl border shadow-2xl',
           'animate-in fade-in-0 zoom-in-95 duration-200',
-          'dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
           className
         )}
+        style={{
+          backgroundColor: 'var(--surface, #ffffff)',
+          borderColor: 'var(--border, #e2e8f0)',
+          color: 'var(--text-primary, #0f172a)',
+        }}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="overflow-y-auto p-6">{children}</div>

@@ -40,7 +40,11 @@ export function MobileBottomNav({ items, onMenuPress }: MobileBottomNavProps) {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-200 bg-white shadow-[0_-4px_20px_rgba(0,0,0,0.06)] pb-[env(safe-area-inset-bottom)]"
+      className="fixed bottom-0 left-0 right-0 z-30 border-t shadow-[0_-4px_20px_rgba(0,0,0,0.06)] pb-[env(safe-area-inset-bottom)]"
+      style={{
+        backgroundColor: 'var(--surface, #ffffff)',
+        borderColor: 'var(--border, #e2e8f0)',
+      }}
       aria-label="Bottom navigation"
     >
       <div
@@ -54,10 +58,10 @@ export function MobileBottomNav({ items, onMenuPress }: MobileBottomNavProps) {
             <Link
               key={item.href}
               href={item.href}
-              className={cn(
-                'flex min-h-11 w-full cursor-pointer flex-col items-center justify-center gap-0.5 py-1.5 transition-colors',
-                active ? 'text-orange-600' : 'text-slate-500 hover:text-slate-800'
-              )}
+              className="flex min-h-11 w-full cursor-pointer flex-col items-center justify-center gap-0.5 py-1.5 transition-colors"
+              style={{
+                color: active ? 'var(--primary, #ea580c)' : 'var(--sidebar-muted, #64748b)',
+              }}
               aria-current={active ? 'page' : undefined}
             >
               {Icon && <Icon className="h-6 w-6 shrink-0" />}
@@ -69,7 +73,10 @@ export function MobileBottomNav({ items, onMenuPress }: MobileBottomNavProps) {
         <button
           type="button"
           onClick={onMenuPress}
-          className="flex min-h-11 w-full cursor-pointer flex-col items-center justify-center gap-0.5 py-1.5 text-slate-500 transition-colors hover:text-slate-800"
+          className="flex min-h-11 w-full cursor-pointer flex-col items-center justify-center gap-0.5 py-1.5 transition-colors hover:opacity-80"
+          style={{
+            color: 'var(--sidebar-muted, #64748b)',
+          }}
           aria-label="Open menu"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-6 w-6 shrink-0">

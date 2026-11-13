@@ -674,11 +674,20 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
           isCollapsed && 'justify-center',
           isActive
             ? cn(
-                'bg-[#ffedd5] text-[#c2410c] font-semibold dark:bg-[#7c2d12]/30 dark:text-[#fb923c]',
-                !isCollapsed && 'border-l-2 border-[#f97316] dark:border-[#fb923c]'
+                'font-semibold shadow-xs',
+                !isCollapsed && 'border-l-[3px]'
               )
-            : 'text-[#000000] hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-200'
+            : 'hover:bg-[var(--primary-light)]/40 hover:text-[var(--primary)] text-[var(--sidebar-text)] opacity-90 hover:opacity-100 transition-colors'
         );
+        const activeRowStyle: React.CSSProperties = isActive
+          ? {
+              backgroundColor: 'var(--primary-light, #ffedd5)',
+              color: 'var(--primary, #c2410c)',
+              borderLeftColor: !isCollapsed ? 'var(--primary, #f97316)' : undefined,
+            }
+          : {
+              color: 'var(--sidebar-text, inherit)',
+            };
         const labelWrapClass = cn(
           'flex min-w-0 flex-1 items-center gap-3',
           isCollapsed ? 'hidden' : 'flex'
@@ -705,17 +714,16 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                     toggleGroup(item.href);
                   }}
                   className={rowClassName}
+                  style={activeRowStyle}
                   title={isCollapsed ? item.label : undefined}
                   aria-expanded={isGroupOpen}
                 >
                   {Icon && (
                     <Icon
-                      className={cn(
-                        'h-5 w-5 shrink-0 transition-colors duration-200',
-                        isActive
-                          ? 'text-[#ea580c] dark:text-[#fb923c]'
-                          : 'text-slate-500 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300'
-                      )}
+                      className="h-5 w-5 shrink-0 transition-colors duration-200"
+                      style={{
+                        color: isActive ? 'var(--primary, #ea580c)' : 'var(--sidebar-muted, #64748b)',
+                      }}
                     />
                   )}
 
@@ -723,12 +731,18 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                     <span className="truncate">{item.label}</span>
                     {item.badge && (
                       <span
-                        className={cn(
-                          'ml-auto inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full',
+                        className="ml-auto inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full"
+                        style={
                           isActive
-                            ? 'bg-[#ffedd5] text-[#c2410c] dark:bg-[#7c2d12]/40 dark:text-[#fdba74]'
-                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                        )}
+                            ? {
+                                backgroundColor: 'var(--primary-light, #ffedd5)',
+                                color: 'var(--primary, #c2410c)',
+                              }
+                            : {
+                                backgroundColor: 'var(--surface, #f1f5f9)',
+                                color: 'var(--text-secondary, #64748b)',
+                              }
+                        }
                       >
                         {item.badge}
                       </span>
@@ -739,11 +753,11 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                     <ChevronDownIcon
                       className={cn(
                         'ml-auto h-3.5 w-3.5 shrink-0 transition-transform duration-200',
-                        isActive
-                          ? 'text-[#ea580c] dark:text-[#fb923c]'
-                          : 'text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300',
                         isGroupOpen ? 'rotate-180' : 'rotate-0'
                       )}
+                      style={{
+                        color: isActive ? 'var(--primary, #ea580c)' : 'var(--sidebar-muted, #94a3b8)',
+                      }}
                     />
                   )}
                 </button>
@@ -751,16 +765,15 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                 <Link
                   href={item.href}
                   className={rowClassName}
+                  style={activeRowStyle}
                   title={isCollapsed ? item.label : undefined}
                 >
                   {Icon && (
                     <Icon
-                      className={cn(
-                        'h-5 w-5 shrink-0 transition-colors duration-200',
-                        isActive
-                          ? 'text-[#ea580c] dark:text-[#fb923c]'
-                          : 'text-slate-500 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300'
-                      )}
+                      className="h-5 w-5 shrink-0 transition-colors duration-200"
+                      style={{
+                        color: isActive ? 'var(--primary, #ea580c)' : 'var(--sidebar-muted, #64748b)',
+                      }}
                     />
                   )}
 
@@ -768,12 +781,18 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                     <span className="truncate">{item.label}</span>
                     {item.badge && (
                       <span
-                        className={cn(
-                          'ml-auto inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full',
+                        className="ml-auto inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full"
+                        style={
                           isActive
-                            ? 'bg-[#ffedd5] text-[#c2410c] dark:bg-[#7c2d12]/40 dark:text-[#fdba74]'
-                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                        )}
+                            ? {
+                                backgroundColor: 'var(--primary-light, #ffedd5)',
+                                color: 'var(--primary, #c2410c)',
+                              }
+                            : {
+                                backgroundColor: 'var(--surface, #f1f5f9)',
+                                color: 'var(--text-secondary, #64748b)',
+                              }
+                        }
                       >
                         {item.badge}
                       </span>
@@ -785,7 +804,10 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
             {hasChildren && isGroupOpen && (
               <div className={cn('space-y-0.5 relative', isCollapsed ? 'hidden' : 'pl-4')}>
                 {/* Connection line for nested items */}
-                <div className="absolute left-[26px] top-0 bottom-0 w-px bg-slate-200 dark:bg-slate-800" />
+                <div 
+                  className="absolute left-[26px] top-0 bottom-0 w-px" 
+                  style={{ backgroundColor: 'var(--border, #e2e8f0)' }}
+                />
                 {renderNavItems(item.children!, level + 1)}
               </div>
             )}
@@ -797,46 +819,72 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
   );
 
   const renderSidebar = (variant: 'desktop' | 'mobile' = 'desktop') => {
+    const safeUserName = (userName || 'Super Admin').replace(/pydah/gi, 'Campo');
+    const safeRoleName = roleName ? roleName.replace(/pydah/gi, 'Campo') : roleName;
+    const safeRole = role ? role.replace(/pydah/gi, 'Campo') : role;
     const workspaceLine =
-      role && roleName !== role ? `${role} Space` : !roleName && role ? `${role} Space` : null;
-    const collapsedProfileTitle = [userName, roleName].filter(Boolean).join(' · ') || userName || 'User';
+      safeRole && safeRoleName !== safeRole ? `${safeRole} Space` : !safeRoleName && safeRole ? `${safeRole} Space` : null;
+    const collapsedProfileTitle = [safeUserName, safeRoleName].filter(Boolean).join(' · ') || safeUserName || 'User';
 
     return (
     <aside
       className={cn(
         'relative flex flex-col overflow-hidden transition-[width] duration-300',
-        'bg-white border-r border-slate-200 dark:border-slate-800 dark:bg-slate-900',
-        'shadow-[4px_0_24px_-8px_#ea580c1f] dark:shadow-[4px_0_24px_-8px_rgba(0,0,0,0.25)]',
+        'border-r shadow-sm',
         isCollapsed ? 'w-[72px]' : 'w-64',
         variant === 'desktop'
           ? 'h-screen flex-shrink-0 z-10'
-          : 'h-full rounded-2xl border border-slate-200 dark:border-slate-700'
+          : 'h-full rounded-2xl border'
       )}
+      style={{
+        backgroundColor: 'var(--sidebar, #ffffff)',
+        borderColor: 'var(--border, #e2e8f0)',
+        color: 'var(--sidebar-text, #1c1917)',
+      }}
     >
-      {/* Theme color at top */}
-      <div className="flex flex-shrink-0 flex-col border-b border-[#fdba74] dark:border-slate-800 bg-[#fed7aa] dark:bg-slate-900">
+      {/* Sidebar Header */}
+      <div 
+        className="flex flex-shrink-0 flex-col border-b"
+        style={{
+          backgroundColor: 'var(--sidebar, #ffffff)',
+          borderColor: 'var(--border, #e2e8f0)',
+        }}
+      >
         <div className="flex items-center justify-between px-4 py-5">
           {!isCollapsed && (
             <>
               <div className="flex items-center gap-3">
-                <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-[#fed7aa] text-[#ea580c] dark:bg-[#431407] dark:text-[#f97316] shadow-sm overflow-hidden">
+                <div 
+                  className="relative flex items-center justify-center w-10 h-10 rounded-xl shadow-sm overflow-hidden"
+                  style={{
+                    backgroundColor: 'rgba(var(--primary-rgb, 234, 88, 12), 0.15)',
+                    color: 'var(--primary, #ea580c)',
+                  }}
+                >
                   <Image
                     src="/Lead Tracker.png"
-                    alt="Logo"
+                    alt="Campo Logo"
                     fill
                     className="object-cover"
                   />
                 </div>
                 <div className="space-y-0.5 min-w-0">
-                  {/* <p className="text-[10px] font-bold uppercase tracking-widest text-orange-600 dark:text-orange-500">Admission</p> */}
-                  <p className="text-lg font-bold text-slate-900 dark:text-white truncate">
-                    Lead Tracker
+                  <p 
+                    className="text-lg font-bold truncate"
+                    style={{ color: 'var(--sidebar-text, var(--text-primary, #1c1917))' }}
+                  >
+                    Campo
                   </p>
                 </div>
               </div>
               {/* Notification Bell in Sidebar Header */}
               <div className="flex-shrink-0">
-                <div className="flex items-center justify-center w-10 h-10 rounded-xl text-[#ea580c] dark:bg-[#431407] dark:text-[#f97316]">
+                <div 
+                  className="flex items-center justify-center w-10 h-10 rounded-xl"
+                  style={{
+                    color: 'var(--sidebar-text, var(--primary, #ea580c))',
+                  }}
+                >
                   <NotificationBell />
                 </div>
               </div>
@@ -844,11 +892,21 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
           )}
           {isCollapsed && variant === 'desktop' && (
             <div className="flex flex-col items-center gap-4 w-full">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl text-[#ea580c] dark:bg-[#431407] dark:text-[#f97316]">
+              <div 
+                className="flex h-10 w-10 items-center justify-center rounded-xl"
+                style={{
+                  color: 'var(--sidebar-text, var(--primary, #ea580c))',
+                }}
+              >
                 <AcademicIcon className="w-6 h-6" />
               </div>
               {/* Notification Bell in Collapsed Sidebar */}
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl text-[#ea580c] dark:bg-[#431407] dark:text-[#f97316]">
+              <div 
+                className="flex h-10 w-10 items-center justify-center rounded-xl"
+                style={{
+                  color: 'var(--sidebar-text, var(--primary, #ea580c))',
+                }}
+              >
                 <NotificationBell />
               </div>
             </div>
@@ -866,34 +924,49 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
       </nav>
 
       {/* Profile and Logout at bottom of sidebar */}
-      <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-700 px-3 py-3">
+      <div 
+        className="flex-shrink-0 border-t px-3 py-3"
+        style={{ borderColor: 'var(--border, #e2e8f0)' }}
+      >
         {!isCollapsed ? (
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-3 overflow-hidden">
-              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#ea580c] text-white text-sm font-bold shadow-sm">
-                {(userName || 'SA').slice(0, 1).toUpperCase()}
+              <div 
+                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-white text-sm font-bold shadow-sm"
+                style={{ backgroundColor: 'var(--primary, #ea580c)' }}
+              >
+                {(safeUserName || 'SA').slice(0, 1).toUpperCase()}
               </div>
               <div className="flex flex-col min-w-0 gap-0.5">
-                <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100" title={userName || 'Super Admin'}>
-                  {userName || 'Super Admin'}
+                <p 
+                  className="truncate text-sm font-semibold"
+                  style={{ color: 'var(--sidebar-text, var(--text-primary, #1c1917))' }}
+                  title={safeUserName}
+                >
+                  {safeUserName}
                 </p>
-                {roleName ? (
+                {safeRoleName ? (
                   <p
-                    className="truncate text-xs font-medium text-slate-600 dark:text-slate-300"
-                    title={roleName}
+                    className="truncate text-xs font-medium"
+                    style={{ color: 'var(--sidebar-muted, var(--text-secondary, #64748b))' }}
+                    title={safeRoleName}
                   >
-                    {roleName}
+                    {safeRoleName}
                   </p>
                 ) : null}
                 {workspaceLine ? (
                   <p
-                    className="truncate text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400"
+                    className="truncate text-[10px] font-bold uppercase tracking-[0.1em]"
+                    style={{ color: 'var(--sidebar-muted, var(--text-muted, #94a3b8))' }}
                     title={workspaceLine}
                   >
                     {workspaceLine}
                   </p>
                 ) : !roleName && !role ? (
-                  <p className="truncate text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+                  <p 
+                    className="truncate text-[10px] font-bold uppercase tracking-[0.1em]"
+                    style={{ color: 'var(--sidebar-muted, var(--text-muted, #94a3b8))' }}
+                  >
                     Workspace
                   </p>
                 ) : null}
@@ -902,29 +975,36 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
             <button
               type="button"
               onClick={handleLogout}
-              className="group flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors hover:bg-[#fef2f2] dark:hover:bg-[#450a0a]/30"
+              className="group flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors hover:bg-red-50 dark:hover:bg-red-950/30"
               aria-label="Logout"
               title="Logout"
             >
-              <LogoutIcon className="h-5 w-5 text-slate-500 transition-colors group-hover:text-[#dc2626] dark:text-slate-400 dark:group-hover:text-[#f87171]" />
+              <LogoutIcon 
+                className="h-5 w-5 transition-colors group-hover:text-[var(--danger,#dc2626)]" 
+                style={{ color: 'var(--sidebar-muted, #64748b)' }}
+              />
             </button>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">
             <div
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-[#ea580c] text-white text-sm font-bold shadow-sm"
+              className="flex h-10 w-10 items-center justify-center rounded-full text-white text-sm font-bold shadow-sm"
+              style={{ backgroundColor: 'var(--primary, #ea580c)' }}
               title={collapsedProfileTitle}
             >
-              {(userName || 'SA').slice(0, 1).toUpperCase()}
+              {(safeUserName || 'SA').slice(0, 1).toUpperCase()}
             </div>
             <button
               type="button"
               onClick={handleLogout}
-              className="group flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg transition-colors hover:bg-[#fef2f2] dark:hover:bg-[#450a0a]/30"
+              className="group flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg transition-colors hover:bg-red-50 dark:hover:bg-red-950/30"
               aria-label="Logout"
               title="Logout"
             >
-              <LogoutIcon className="h-5 w-5 text-slate-500 transition-colors group-hover:text-[#dc2626] dark:text-slate-400 dark:group-hover:text-[#f87171]" />
+              <LogoutIcon 
+                className="h-5 w-5 transition-colors group-hover:text-[var(--danger,#dc2626)]" 
+                style={{ color: 'var(--sidebar-muted, #64748b)' }}
+              />
             </button>
           </div>
         )}
@@ -932,7 +1012,11 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
 
       <button
         type="button"
-        className="absolute top-[4.25rem] -right-3 hidden h-8 w-8 items-center justify-center rounded-full border-2 border-slate-200 bg-white text-slate-500 shadow-md transition-all hover:scale-105 hover:border-[#fdba74] hover:bg-[#fff7ed] hover:text-[#ea580c] focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-[#ea580c] dark:hover:bg-[#431407]/50 dark:hover:text-[#fb923c] lg:flex z-10 cursor-pointer"
+        className="absolute top-[4.25rem] -right-3 hidden h-8 w-8 items-center justify-center rounded-full border-2 bg-white shadow-md transition-all hover:scale-105 focus:outline-none dark:bg-slate-800 lg:flex z-10 cursor-pointer"
+        style={{
+          borderColor: 'var(--border, #e2e8f0)',
+          color: 'var(--sidebar-muted, #64748b)',
+        }}
         onClick={() => setIsCollapsed((prev) => !prev)}
         aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
@@ -976,7 +1060,13 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
   return (
     <DashboardHeaderContext.Provider value={headerContextValue}>
       <PermissionContext.Provider value={permissionContextValue}>
-        <div className="relative min-h-screen bg-gray-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 selection:bg-[#ffedd5] selection:text-[#9a3412]">
+        <div 
+          className="portal-theme-shell relative min-h-screen text-slate-900 selection:bg-[var(--primary-light)] selection:text-[var(--primary)]"
+          style={{
+            backgroundColor: 'var(--background, #fffbf7)',
+            color: 'var(--text-primary, #1c1917)',
+          }}
+        >
 
           <div className="relative flex h-screen w-full overflow-hidden">
             <div className="hidden lg:block flex-shrink-0">{renderSidebar('desktop')}</div>
@@ -1028,7 +1118,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                 >
                   <button
                     type="button"
-                    className="inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-xl border border-slate-200/60 bg-white p-2.5 text-slate-500 shadow-sm transition hover:border-[#fed7aa] hover:text-[#ea580c] hover:shadow-md focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200"
+                    className="inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-xl border border-slate-200/60 bg-white p-2.5 text-slate-500 shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)] hover:shadow-md focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200"
                     onClick={() => setIsMobileOpen(true)}
                     aria-label="Toggle navigation menu"
                   >
@@ -1039,11 +1129,15 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
               ) : (
                 <header
                   className={cn(
-                    'flex-shrink-0 z-10',
+                    'flex-shrink-0 z-10 border-b',
                     isEdgeToEdgeWorkspace ? 'px-2 pt-2 pb-0 sm:px-3 lg:px-3' : 'px-4 sm:px-6 lg:px-8',
                     !isEdgeToEdgeWorkspace && (isCompactPage ? 'pt-2 pb-0' : (isReducedSpacingPage ? 'pt-6 pb-0' : 'pt-6 pb-4')),
                     useMobileBottomNav && 'hidden'
                   )}
+                  style={{
+                    backgroundColor: 'var(--navbar, var(--surface, #ffffff))',
+                    borderColor: 'var(--border, #e2e8f0)',
+                  }}
                 >
                   <div
                     className={cn(
@@ -1060,7 +1154,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                     >
                       <button
                         type="button"
-                        className="inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-xl border border-slate-200/60 bg-white p-2.5 text-slate-500 shadow-sm transition hover:border-[#fed7aa] hover:text-[#ea580c] hover:shadow-md focus:outline-none lg:hidden dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200"
+                        className="inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-xl border border-slate-200/60 bg-white p-2.5 text-slate-500 shadow-sm transition hover:border-[var(--primary)] hover:text-[var(--primary)] hover:shadow-md focus:outline-none lg:hidden dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200"
                         onClick={() => setIsMobileOpen(true)}
                         aria-label="Toggle navigation menu"
                       >
@@ -1072,7 +1166,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                         <button
                           type="button"
                           onClick={handleBack}
-                          className="group relative inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-xl border border-slate-200/60 bg-white p-2.5 text-slate-500 shadow-sm transition-all hover:scale-105 hover:border-[#fed7aa] hover:text-[#ea580c] hover:shadow-md focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200 flex-shrink-0"
+                          className="group relative inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-xl border border-slate-200/60 bg-white p-2.5 text-slate-500 shadow-sm transition-all hover:scale-105 hover:border-[var(--primary)] hover:text-[var(--primary)] hover:shadow-md focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200 flex-shrink-0"
                           aria-label="Go back"
                           title="Back"
                         >
@@ -1091,11 +1185,19 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                           headerContent
                         ) : (
                           <>
-                            <h1 className="text-xl font-bold text-[#1e293b] dark:text-white truncate">
+                            <h1 
+                              className="text-xl font-bold truncate"
+                              style={{ color: 'var(--text-primary, #1e293b)' }}
+                            >
                               {title}
                             </h1>
                             {description && (
-                              <p className="text-sm font-medium text-slate-500/90 dark:text-slate-400 truncate">{description}</p>
+                              <p 
+                                className="text-sm font-medium truncate"
+                                style={{ color: 'var(--text-secondary, #64748b)' }}
+                              >
+                                {description}
+                              </p>
                             )}
                           </>
                         )}
@@ -1115,6 +1217,10 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                       : (isReducedSpacingPage ? 'p-3 sm:p-6 lg:px-8 lg:pb-8 lg:pt-2' : 'p-3 sm:p-6 lg:p-8'),
                   useMobileBottomNav && 'pb-20 pt-[calc(2.75rem+env(safe-area-inset-top))] lg:pt-6 lg:pb-8'
                 )}
+                style={{
+                  backgroundColor: 'var(--background, #fffbf7)',
+                  color: 'var(--text-primary, #1c1917)',
+                }}
               >
                 {/* Desktop heading for user / manager (custom headerContent or title) */}
                 {useMobileBottomNav && (
@@ -1123,11 +1229,17 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                       headerContent
                     ) : (
                       <>
-                        <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+                        <h1 
+                          className="text-3xl font-bold tracking-tight"
+                          style={{ color: 'var(--text-primary, #0f172a)' }}
+                        >
                           {mobileTopBar?.title || title}
                         </h1>
                         {mobileTopBar?.titleMeta ? (
-                          <span className="text-sm font-semibold tabular-nums text-slate-500 dark:text-slate-400">
+                          <span 
+                            className="text-sm font-semibold tabular-nums"
+                            style={{ color: 'var(--text-secondary, #64748b)' }}
+                          >
                             {mobileTopBar.titleMeta}
                           </span>
                         ) : null}
@@ -1148,10 +1260,11 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                 <div
                   className={cn(
                     'lg:hidden fixed top-0 left-0 right-0 z-10',
-                    'pt-[env(safe-area-inset-top)]',
-                    'bg-gradient-to-r from-[#f97316] via-[#ea580c] to-[#d97706] shadow-md',
-                    'dark:from-[#ea580c] dark:via-[#c2410c] dark:to-[#b45309]'
+                    'pt-[env(safe-area-inset-top)] shadow-md'
                   )}
+                  style={{
+                    backgroundColor: 'var(--primary, #ea580c)',
+                  }}
                 >
                   <div className="flex h-11 min-h-11 items-center px-3">
                     {/* Left: back or spacer (fixed width for symmetry) */}
@@ -1166,7 +1279,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                               handleBack();
                             }
                           }}
-                          className="flex cursor-pointer items-center justify-center w-9 h-9 rounded-lg text-white hover:bg-[#ea580c]/80 dark:hover:bg-[#c2410c]/80"
+                          className="flex cursor-pointer items-center justify-center w-9 h-9 rounded-lg text-white hover:opacity-90"
                           aria-label="Back"
                         >
                           <BackIcon className="h-5 w-5" />
@@ -1191,7 +1304,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
                           <button
                             type="button"
                             onClick={mobileTopBar.rightAction.onClick}
-                            className="flex cursor-pointer items-center justify-center w-9 h-9 rounded-lg text-white hover:bg-[#ea580c]/80 dark:hover:bg-[#c2410c]/80"
+                            className="flex cursor-pointer items-center justify-center w-9 h-9 rounded-lg text-white hover:opacity-90"
                             aria-label="Action"
                           >
                             {ActionIcon && <ActionIcon className="h-5 w-5" />}

@@ -115,7 +115,7 @@ export default function ManagerDashboard() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[var(--primary,#ea580c)] mx-auto"></div>
           <p className="mt-4 text-gray-600 dark:text-gray-400">Loading...</p>
         </div>
       </div>
@@ -150,8 +150,8 @@ export default function ManagerDashboard() {
                 {isLoading ? '...' : formatNumber(analytics?.totalLeads || 0)}
               </p>
             </div>
-            <div className="p-2 sm:p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg shrink-0">
-              <UserIcon className="w-5 h-5 sm:w-6 sm:h-6 text-orange-600 dark:text-orange-400" />
+            <div className="p-2 sm:p-3 bg-[var(--primary-light,#fff7ed)] rounded-lg shrink-0">
+              <UserIcon className="w-5 h-5 sm:w-6 sm:h-6 text-[var(--primary,#ea580c)]" />
             </div>
           </div>
         </Card>
@@ -305,7 +305,7 @@ export default function ManagerDashboard() {
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="leads" fill="#ea580c" name="Total Leads" />
+                <Bar dataKey="leads" fill="var(--primary, #ea580c)" name="Total Leads" />
                 <Bar dataKey="confirmed" fill="#10b981" name="Confirmed" />
                 <Bar dataKey="calls" fill="#8b5cf6" name="Today's Calls" />
               </BarChart>
